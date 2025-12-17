@@ -44,3 +44,15 @@ App	Endpoint URL
 openagents-api	https://openagents-api-4816e41904c5.herokuapp.com/
 openagents-web	https://openagents-web-d694560f359d.herokuapp.com/
 openagents-realtime	https://openagents-realtime-06eab94e998c.herokuapp.com/
+
+
+
+#----------
+# queries
+#----------
+
+Show me the most highly rated Greek restaurants in San Francisco pinned to a map.
+
+For Kokkari Estiatorio, show me a few photos about this Greek restaurants and show me some reviews about this Greek restaurants.
+
+For driving from the Four Seasons hotel in Palo Alto to Kokkari Estiatorio, show me a detailed routing map please.
