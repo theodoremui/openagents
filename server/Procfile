@@ -1,0 +1,3 @@
+# server/Procfile
+# Matches: ./scripts/run_server.sh (runs python -m server.main)
+web: python -m server.main --host 0.0.0.0 --port $PORT

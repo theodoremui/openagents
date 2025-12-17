@@ -1,0 +1,3 @@
+# server/Procfile.worker
+# Matches: ./scripts/run_realtime.sh (runs python -m server.voice.realtime.worker start)
+worker: python -m server.voice.realtime.worker start
