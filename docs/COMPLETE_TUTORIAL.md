@@ -1801,7 +1801,7 @@ worker: python -m server.voice.realtime.worker
 
 ```bash
 # The realtime worker uses a worker dyno (not web)
-heroku ps:scale web=0 worker=1 --app openagents-realtime
+heroku ps:scale worker=1 --app openagents-realtime
 ```
 
 ### Step 4: Configure the Frontend
