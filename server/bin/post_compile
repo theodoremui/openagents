@@ -1,0 +1,20 @@
+#!/bin/bash
+# Post-compile hook for Heroku Python buildpack
+# This runs after pip install
+
+echo "-----> Installing uv package manager"
+pip install uv
+
+echo "-----> Installing server dependencies with uv"
+cd $HOME
+# Install server package in editable mode (matches local setup)
+uv pip install --system -e .
+
+echo "-----> Installing yelp-mcp dependencies (if needed)"
+if [ -d "../yelp-mcp" ]; then
+    cd ../yelp-mcp
+    uv sync --frozen || echo "Warning: yelp-mcp sync failed (may not be required)"
+    cd ..
+fi
+
+echo "-----> Post-compile complete"
