@@ -34,3 +34,10 @@ The collapsable right panel continues to not have a handle  to allow the user to
 Deeply think about, and plan carefully, how best to do this with best OOP engineering practices, SOLID, DRY, YAGNI, modularity, extensibility and robustness. Test your implementation carefully and systematically.  Fix all remaining issues once and for all.
 
 
+
+
+#----------
+# heroku
+#----------
+
+https://openagents-realtime-06eab94e998c.herokuapp.com/ deployed to Heroku
