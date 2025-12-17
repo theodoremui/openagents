@@ -1,0 +1,63 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openagents"
+version = "0.1.2"
+description = "A multi-agent system for AI-powered decision making and problem solving."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "elevenlabs>=2.26.0",
+    "fastapi>=0.123.0",
+    "geopy>=2.4.1",
+    "google-auth>=2.23.0",
+    "googlemaps>=4.10.0",
+    "livekit>=0.17.0",
+    "livekit-agents>=0.9.0",
+    "livekit-api>=1.1.0",
+    "livekit-plugins-openai>=0.9.0",
+    "livekit-plugins-silero>=0.9.0",
+    "livekit-plugins-turn-detector>=1.3.6",
+    "loguru>=0.7.3",
+    "openai>=2.8.0",
+    "openai-agents>=0.5.1",
+    "perplexityai>=0.22.0",
+    "pytest>=9.0.1",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=7.0.0",
+    "pytest-mock>=3.12.0",
+    "python-dotenv>=1.2.1",
+    "pyyaml>=6.0.1",
+    "streamlit>=1.28.0",
+    "wikipedia>=1.4.0",
+    "yfinance>=0.2.66",
+]
+
+[tool.setuptools]
+packages = ["asdrp"]
+
+[project.optional-dependencies]
+dev = []
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+# Exclude server tests - they require fastapi and should be run from server/ directory
+norecursedirs = ["tests/server", "server", "frontend_web", "frontend_stream"]
+# Markers for test categorization
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests (require external APIs)",
+]
+# By default, skip slow tests unless explicitly requested
+# Slow tests make real API calls and should be run:
+# - In CI/CD pipelines
+# - Before releases
+# - When making integration changes
+# Run with: pytest -m ""  (all tests) or pytest -m "slow" (slow only)
+addopts = "-m \"not slow\""

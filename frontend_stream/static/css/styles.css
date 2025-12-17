@@ -1,0 +1,132 @@
+/* Main styling */
+.main {
+    padding: 1rem 2rem;
+}
+
+/* Header styling */
+h1 {
+    color: #1f77b4;
+    border-bottom: 3px solid #1f77b4;
+    padding-bottom: 0.5rem;
+}
+
+h2 {
+    color: #2c3e50;
+    margin-top: 1.5rem;
+}
+
+/* Card styling */
+.agent-card {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    padding: 1.5rem;
+    border-radius: 10px;
+    color: white;
+    margin: 1rem 0;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.info-card {
+    background: #f8f9fa;
+    padding: 1rem;
+    border-radius: 8px;
+    border-left: 4px solid #1f77b4;
+    margin: 1rem 0;
+}
+
+/* Button styling */
+.stButton > button {
+    width: 100%;
+    border-radius: 5px;
+    font-weight: 600;
+    transition: all 0.3s;
+}
+
+.stButton > button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* Sidebar styling */
+.css-1d391kg {
+    padding-top: 2rem;
+}
+
+/* Ensure sidebar title is visible and prominent */
+[data-testid="stSidebar"] h1 {
+    margin-top: 0;
+    padding-top: 1rem;
+    padding-bottom: 1rem;
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: #262730;
+    border-bottom: 2px solid #e0e0e0;
+    margin-bottom: 1rem;
+}
+
+/* Hide Streamlit's sidebar navigation completely (we use top nav instead) */
+[data-testid="stSidebarNav"] {
+    display: none !important;
+}
+
+/* Hide all sidebar navigation links and text */
+[data-testid="stSidebar"] nav {
+    display: none !important;
+}
+
+[data-testid="stSidebar"] ul[class*="nav"] {
+    display: none !important;
+}
+
+/* Hide navigation links in sidebar */
+[data-testid="stSidebar"] a[href^="/"],
+[data-testid="stSidebar"] a[href*="Home"],
+[data-testid="stSidebar"] a[href*="Agent_Testing"],
+[data-testid="stSidebar"] a[href*="Configuration"],
+[data-testid="stSidebar"] a[href*="About"] {
+    display: none !important;
+}
+
+/* Hide any navigation-related elements in sidebar */
+[data-testid="stSidebar"] [class*="nav"],
+[data-testid="stSidebar"] [class*="Nav"] {
+    display: none !important;
+}
+
+/* Hide list items that are navigation links (but preserve form elements) */
+[data-testid="stSidebar"] li:has(a[href^="/"]) {
+    display: none !important;
+}
+
+/* Success/Error messages */
+.success-box {
+    background-color: #d4edda;
+    border: 1px solid #c3e6cb;
+    color: #155724;
+    padding: 1rem;
+    border-radius: 5px;
+    margin: 1rem 0;
+}
+
+.error-box {
+    background-color: #f8d7da;
+    border: 1px solid #f5c6cb;
+    color: #721c24;
+    padding: 1rem;
+    border-radius: 5px;
+    margin: 1rem 0;
+}
+
+/* Code block styling */
+.stCodeBlock {
+    border-radius: 5px;
+}
+
+/* Metric cards */
+.metric-card {
+    background: white;
+    padding: 1rem;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    text-align: center;
+}
+

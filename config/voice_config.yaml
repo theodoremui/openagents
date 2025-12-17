@@ -1,0 +1,420 @@
+# Voice Module Configuration
+# Multi-Provider Voice System with OpenAI (default) and ElevenLabs (premium)
+#
+# This configuration supports multiple voice providers with automatic selection
+# based on cost, quality, or explicit preferences.
+
+voice:
+  # Global enable/disable for voice features
+  enabled: true
+
+  # Default provider for voice operations
+  # Options: openai (cost-effective), elevenlabs (premium quality)
+  default_provider: "openai"
+
+  # Default selection strategy
+  # Options: cost_optimized, quality_optimized, latency_optimized, explicit
+  default_strategy: "cost_optimized"
+
+  # Enable automatic fallback to alternative providers on failure
+  enable_fallback: true
+
+  # ============================================================================
+  # Provider-Specific Configurations
+  # ============================================================================
+
+  providers:
+    # OpenAI Configuration (Default - Cost-Effective)
+    # Pricing: STT $0.006/min, TTS $0.012/1K chars (96% cheaper than ElevenLabs)
+    openai:
+      enabled: true
+
+      # Text-to-Speech Configuration
+      tts:
+        # Model: gpt-4o-mini-tts (recommended), tts-1 (standard), tts-1-hd (high quality)
+        # Options: gpt-4o-mini-tts, tts-1, tts-1-hd
+        model: "gpt-4o-mini-tts"
+
+        # Default voice
+        # Options: alloy, ash, ballad, coral, echo, fable, nova, onyx, sage, shimmer
+        # voice: "coral" # Clear, cheerful, friendly (recommended for general use)
+        # voice: "nova" # Bright, energetic, female (recommended for conversational use)
+        # voice: "echo" # Deep, authoritative, male (recommended for professional use)
+        # voice: "ballad" # Expressive, dramatic (recommended for storytelling use)
+        # voice: "alloy" # Balanced, neutral (recommended for technical content use)
+        # voice: "ash" # Smooth, warm (recommended for calm, relaxed use)
+        # voice: "fable" # Warm, engaging (recommended for educational use)
+        # voice: "onyx" # Deep, powerful (recommended for announcements use)
+        voice: "sage" # Calm, wise (recommended for meditation, guidance use)
+        # voice: "shimmer" # Soft, gentle (recommended for soothing content use)
+
+        # Playback speed (0.25 - 4.0)
+        speed: 1.0
+
+        # Output format
+        # Options: mp3 (recommended), opus, aac, flac, wav, pcm
+        response_format: "mp3"
+
+        # Optional instructions for voice control
+        # Examples: "Speak slowly and clearly", "Use an enthusiastic tone", "Emphasize important words"
+        instructions: null
+
+        # Maximum text length per request (characters)
+        max_text_length: 4096 # OpenAI limit
+
+        # Request timeout in seconds
+        timeout: 30
+
+      # Speech-to-Text Configuration
+      stt:
+        # Model: gpt-4o-transcribe (best quality), whisper-1 (cheapest), gpt-4o-mini-transcribe (balance)
+        model: "gpt-4o-transcribe"
+
+        # Default language (ISO 639-1)
+        # Set to null for automatic detection
+        language: null
+
+        # Response format
+        # Options: json (default), text, srt, verbose_json, vtt
+        response_format: "verbose_json" # Includes word-level timestamps
+
+        # Timestamp granularities
+        # Options: word, segment
+        timestamp_granularities: ["word"]
+
+        # Sampling temperature (0.0 - 1.0)
+        # Lower = more focused and deterministic
+        temperature: 0.0
+
+        # Optional prompt for context (helps with accuracy)
+        prompt: null
+
+        # Request timeout in seconds
+        timeout: 60
+
+    # ElevenLabs Configuration (Premium Quality)
+    # Pricing: STT $0.015/min, TTS $0.30/1K chars (25x more expensive)
+    elevenlabs:
+      enabled: true
+
+      # Text-to-Speech Configuration
+      tts:
+        # Default voice ID (ElevenLabs voice identifier)
+        # Rachel - versatile, clear voice
+        voice_id: "JBFqnCBsd6RMkjVDRZzb"
+
+        # Model selection
+        # Options: eleven_multilingual_v2 (recommended), eleven_flash_v2_5 (low latency), eleven_turbo_v2_5
+        model_id: "eleven_multilingual_v2"
+
+        # Output audio format
+        # Options: mp3_44100_128 (recommended), mp3_22050_32, pcm_16000, pcm_22050, pcm_24000, pcm_44100
+        output_format: "mp3_44100_128"
+
+        # Voice settings (0.0 - 1.0)
+        stability: 0.5 # Higher = more consistent, lower = more expressive
+        similarity_boost: 0.75 # How closely to match the original voice
+        style: 0.0 # Style exaggeration (0 = neutral)
+        use_speaker_boost: true # Enhance clarity and quality
+
+        # Maximum text length per request (characters)
+        max_text_length: 5000
+
+        # Request timeout in seconds
+        timeout: 30
+
+      # Speech-to-Text Configuration
+      stt:
+        # Model selection
+        # Options: scribe_v1 (recommended), scribe_v1_experimental
+        model_id: "scribe_v1"
+
+        # Default language (ISO 639-1 or 639-3)
+        # Set to null for automatic detection
+        language_code: null
+
+        # Tag audio events (laughter, applause, etc.)
+        tag_audio_events: false
+
+        # Timestamp granularity: word or character
+        timestamps_granularity: "word"
+
+        # Enable speaker diarization (who spoke when)
+        diarize: false
+
+        # Maximum speakers to detect (1-32)
+        max_speakers: 10
+
+        # Request timeout in seconds
+        timeout: 60
+
+  # ============================================================================
+  # Named Voice Profiles
+  # Multi-provider voice profiles for different use cases
+  # ============================================================================
+
+  voice_profiles:
+    # Default Profile (OpenAI - Cost-Effective)
+    default:
+      provider: "openai"
+      voice_id: "coral" # Clear, friendly, female
+      model_id: "gpt-4o-mini-tts"
+      speed: 1.0
+      instructions: "Speak with a clear, friendly tone"
+
+    # Professional Profile (OpenAI - Authoritative)
+    professional:
+      provider: "openai"
+      voice_id: "echo" # Deep, authoritative, male
+      model_id: "gpt-4o-mini-tts"
+      speed: 0.9 # Slightly slower for clarity
+      instructions: "Speak in a professional, measured tone"
+
+    # Conversational Profile (OpenAI - Friendly)
+    conversational:
+      provider: "openai"
+      voice_id: "nova" # Bright, energetic, female
+      model_id: "gpt-4o-mini-tts"
+      speed: 1.1 # Slightly faster for natural feel
+      instructions: "Use a warm, conversational tone"
+
+    # Storytelling Profile (OpenAI - Expressive)
+    storytelling:
+      provider: "openai"
+      voice_id: "ballad" # Expressive, dramatic
+      model_id: "gpt-4o-mini-tts"
+      speed: 0.95
+      instructions: "Use expressive intonation with dramatic pauses"
+
+    # Premium Profile (ElevenLabs - Highest Quality)
+    premium:
+      provider: "elevenlabs"
+      voice_id: "21m00Tcm4TlvDq8ikWAM" # Rachel (professional)
+      model_id: "eleven_multilingual_v2"
+      stability: 0.7
+      similarity_boost: 0.8
+      style: 0.0
+      use_speaker_boost: true
+
+    # Premium Casual (ElevenLabs - Natural)
+    premium_casual:
+      provider: "elevenlabs"
+      voice_id: "EXAVITQu4vr4xnSDxMaL" # Bella (casual, friendly)
+      model_id: "eleven_flash_v2_5"
+      stability: 0.4
+      similarity_boost: 0.6
+      style: 0.0
+      use_speaker_boost: true
+
+  # Default profile to use when none specified
+  default_profile: "conversational"
+
+  # ============================================================================
+  # Caching Settings
+  # ============================================================================
+
+  cache:
+    # Cache voice list for this duration (seconds)
+    voice_list_ttl: 3600
+
+    # Enable response caching for repeated phrases
+    enable_response_cache: false
+
+    # Response cache TTL (seconds)
+    response_cache_ttl: 86400
+
+  # ============================================================================
+  # Logging Settings
+  # ============================================================================
+
+  logging:
+    # Log API calls
+    log_api_calls: true
+
+    # Log audio data (WARNING: can be large, not recommended for production)
+    log_audio_data: false
+
+    # Log level: DEBUG, INFO, WARNING, ERROR
+    level: "INFO"
+
+    # Log provider selection decisions
+    log_provider_selection: true
+
+  # ============================================================================
+  # Cost Tracking (Optional)
+  # ============================================================================
+
+  cost_tracking:
+    # Enable cost tracking and analytics
+    enabled: false
+
+    # Alert when monthly costs exceed threshold (USD)
+    monthly_threshold: 100.0
+
+    # Log costs per request
+    log_per_request: false
+
+  # ============================================================================
+  # Real-Time Voice Configuration (LiveKit Integration)
+  # ============================================================================
+
+  realtime:
+    # Enable/disable real-time voice features
+    enabled: true
+
+    # LiveKit connection settings
+    # NOTE: Credentials loaded from environment variables:
+    # - LIVEKIT_URL: LiveKit server WebSocket URL
+    # - LIVEKIT_API_KEY: LiveKit API key
+    # - LIVEKIT_API_SECRET: LiveKit API secret
+    livekit:
+      # Room settings
+      room_empty_timeout: 300 # seconds (5 minutes)
+      max_participants: 2 # User + Agent
+
+    # LiveKit Agents Worker settings
+    #
+    # IMPORTANT: LiveKit defaults to multiple idle processes in production.
+    # Each process imports heavy dependencies (e.g. torch/onnx via plugins), which can
+    # cause OS-level SIGKILL/OOM on laptops. We default to 1 to keep memory stable.
+    #
+    # Env overrides:
+    # - OPENAGENTS_LIVEKIT_NUM_IDLE_PROCESSES
+    # - OPENAGENTS_LIVEKIT_JOB_MEMORY_WARN_MB
+    # - OPENAGENTS_LIVEKIT_JOB_MEMORY_LIMIT_MB
+    # - OPENAGENTS_LIVEKIT_LOAD_THRESHOLD
+    # - OPENAGENTS_LIVEKIT_WORKER_PORT
+    # - OPENAGENTS_LIVEKIT_AGENT_NAME
+    worker:
+      agent_name: "openagents-voice"
+      num_idle_processes: 1
+      # 0 => let LiveKit pick a free port for its internal HTTP server
+      port: 0
+      # Memory guardrails per job process (MB). 0 disables the hard limit.
+      job_memory_warn_mb: 700
+      job_memory_limit_mb: 0
+      load_threshold: 0.7
+
+    # VAD (Voice Activity Detection) settings
+    vad:
+      provider: silero
+      # Activation threshold: 0.0 (most sensitive) to 1.0 (least sensitive)
+      # Higher values reduce false positives from background noise
+      # Recommended: 0.5-0.7 for normal environments, 0.7-0.9 for noisy environments
+      activation_threshold: 0.7 # Increased from 0.5 to reduce noise sensitivity
+      # Minimum speech duration (seconds) - shorter segments are filtered out
+      min_speech_duration: 0.05 # Default: 0.05s (50ms)
+      # Minimum silence duration (seconds) - longer = better noise filtering
+      # This helps filter out brief noise spikes between words
+      min_silence_duration: 0.55 # Default: 0.55s - increased for noise reduction
+      # Prefix padding (seconds) - audio captured before detected speech start
+      prefix_padding_duration: 0.5 # Default: 0.5s
+
+    # Turn detection settings
+    # NOTE: Turn detection requires an inference executor which may not be available
+    # in all environments. If you see "no inference executor" errors, disable this.
+    turn_detection:
+      enabled: false # Disabled by default due to inference executor requirements
+      min_endpointing_delay: 0.5 # seconds
+      max_endpointing_delay: 3.0 # seconds
+
+    # Semantic Endpointing settings
+    # Intelligently detects when a user has completed a coherent thought
+    # rather than relying solely on silence duration (prevents query fragmentation)
+    semantic_endpointing:
+      # Enable semantic endpointing (highly recommended for natural conversations)
+      enabled: true
+
+      # Silence thresholds for different utterance completeness levels
+      # AMBIGUOUS utterances: "Can you show me..." (needs moderate confirmation)
+      # Increased to 1.2s to give users more time for complex multi-part queries
+      min_silence_ambiguous: 1.2 # seconds (increased from 0.6s for better patience)
+
+      # COMPLETE utterances: "Show me Greek restaurants in SF" (needs brief confirmation)
+      # Increased to 1.8s to ensure complete thoughts are captured before processing
+      min_silence_complete: 1.8 # seconds (increased from 1.0s to avoid premature endpointing)
+
+      # Safety timeout - force endpoint after this duration regardless of completeness
+      max_buffer_duration: 30.0 # seconds
+
+      # Enable detailed logging for debugging (disable in production)
+      enable_logging: false
+
+      # Confidence threshold for endpointing decisions (0.0 to 1.0)
+      # Higher = more conservative (waits longer before endpointing)
+      confidence_threshold: 0.7
+
+    # Interruption handling
+    interruptions:
+      allow: true
+      min_duration: 0.5 # seconds
+      min_words: 0
+
+    # Agent behavior settings
+    agent:
+      type: moe # Options: moe (default), smart_router, single_agent
+      instructions: |
+        You are a helpful voice assistant. Speak naturally and conversationally.
+
+        IMPORTANT - DUAL OUTPUT SYSTEM:
+        The MoE orchestrator produces DETAILED MARKDOWN output that is displayed verbatim
+        in the Chat Interface. Your job is to SUMMARIZE that output for SPOKEN AUDIO.
+
+        The user sees: Full detailed markdown (headings, bullet points, links, ratings, etc.)
+        The user hears: Your brief, conversational summary (1-3 sentences)
+
+        VOICE RESPONSE STYLE - SUMMARIZE FOR AUDIO:
+        - Keep spoken responses to 1-3 sentences (the details are shown in chat)
+        - Respond in the same language as the user's query
+        - Speak as if talking to a friend - natural, flowing sentences
+        - Summarize the KEY INSIGHT or main answer from the detailed results
+        - Skip reading out: addresses, phone numbers, ratings, URLs, coordinates
+        - Reference that details are visible: "I found several options - you can see the details below"
+
+        EXAMPLES OF SUMMARIZATION:
+        - Detailed output has 5 restaurants with ratings, addresses, hours...
+          Your voice: "I found five great pizza places in San Carlos. Pizzeria Uno has the highest rating at 4.7 stars. The full details and a map are shown below."
+
+        - Detailed output has step-by-step directions with turn-by-turn...
+          Your voice: "The drive is about 25 minutes. I've shown the route and directions in the chat."
+
+        - Detailed output has weather forecast with daily breakdown...
+          Your voice: "It looks like sunny skies this week with temperatures in the mid-70s. The full forecast is displayed below."
+
+        VISUAL CONTENT (Maps & Images):
+        - When maps or images are included, briefly mention them
+        - Say: "I'll show you these on a map" or "The map is displayed below"
+        - The visual content appears in the chat interface while you speak
+        - Don't read out coordinates, markers, or map details
+
+        NON-NEGOTIABLES:
+        - Your spoken response is DIFFERENT from the chat display (shorter, conversational)
+        - The chat shows the FULL detailed markdown from the orchestrator
+        - Do NOT claim you "can't speak" or "can't produce audio"
+        - If user can't hear you, suggest: check volume, audio permissions, "Enable audio" button
+        - Never read long numbers, URLs, or JSON blocks aloud
+
+        RESPONSE PATTERN:
+        1. Provide the key answer in 1-2 sentences
+        2. Mention that full details/map/list are shown in the chat
+        3. Optionally offer to elaborate if they want more info spoken aloud
+
+      initial_greeting: true
+      greeting_instructions: |
+        Greet the user warmly.
+        Keep the greeting brief and friendly.
+
+    # Background audio settings
+    audio:
+      enable_thinking_sound: true
+      thinking_sound: subtle_pulse
+      thinking_volume: 0.3
+      enable_ambient: false
+      ambient_sound: soft_background
+      ambient_volume: 0.1
+
+    # Session limits
+    limits:
+      max_sessions_per_user: 3
+      max_session_duration: 3600 # seconds (1 hour)
+      token_ttl_hours: 24 # 24 hours to prevent mid-session expiration

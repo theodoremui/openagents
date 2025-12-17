@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Open Agent Evaluation Platform</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            overflow: hidden;
+        }
+        
+        /* Top Navigation Bar */
+        .topnav {
+            background-color: #1f77b4;
+            color: white;
+            padding: 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            height: 60px;
+        }
+        
+        .topnav-container {
+            max-width: 100%;
+            margin: 0 auto;
+            display: flex;
+            align-items: center;
+            height: 100%;
+            padding: 0 20px;
+        }
+        
+        .topnav-brand {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-right: 30px;
+            color: white;
+            text-decoration: none;
+        }
+        
+        .topnav-links {
+            display: flex;
+            list-style: none;
+            gap: 0;
+            height: 100%;
+        }
+        
+        .topnav-links li {
+            height: 100%;
+        }
+        
+        .topnav-links a {
+            display: flex;
+            align-items: center;
+            height: 100%;
+            padding: 0 20px;
+            color: white;
+            text-decoration: none;
+            transition: background-color 0.3s;
+            border-bottom: 3px solid transparent;
+        }
+        
+        .topnav-links a:hover {
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+        
+        .topnav-links a.active {
+            background-color: rgba(255, 255, 255, 0.15);
+            border-bottom-color: white;
+            font-weight: 600;
+        }
+        
+        /* Main Content Area */
+        .main-content {
+            margin-top: 60px;
+            height: calc(100vh - 60px);
+            width: 100%;
+        }
+        
+        .iframe-container {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+        
+        iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <!-- Top Navigation Bar -->
+    <nav class="topnav">
+        <div class="topnav-container">
+            <a href="#" class="topnav-brand" onclick="loadPage('Home'); return false;">🤖 Open Agent</a>
+            <ul class="topnav-links">
+                <li><a href="#" class="nav-link active" data-page="Home" onclick="loadPage('Home'); return false;">Home</a></li>
+                <li><a href="#" class="nav-link" data-page="Agent_Testing" onclick="loadPage('Agent_Testing'); return false;">Agent Testing</a></li>
+                <li><a href="#" class="nav-link" data-page="Configuration" onclick="loadPage('Configuration'); return false;">Configuration</a></li>
+                <li><a href="#" class="nav-link" data-page="About" onclick="loadPage('About'); return false;">About</a></li>
+            </ul>
+        </div>
+    </nav>
+    
+    <!-- Main Content Area with iframe -->
+    <div class="main-content">
+        <iframe id="contentFrame" class="iframe-container" src="" title="Open Agent Content"></iframe>
+    </div>
+    
+    <script>
+        // Streamlit server URL (default to localhost:8501)
+        const STREAMLIT_PORT = 8501;
+        const streamlitBaseUrl = `http://localhost:${STREAMLIT_PORT}`;
+        
+        // Page routing mapping - Streamlit multi-page routes
+        // Home.py maps to root "/", pages map to "/page_name"
+        const pageRoutes = {
+            'Home': '/',  // Home.py is the main page
+            'Agent_Testing': '/Agent_Testing',  // pages/1_Agent_Testing.py
+            'Configuration': '/Configuration',   // pages/2_Configuration.py
+            'About': '/About'                   // pages/3_About.py
+        };
+        
+        function loadPage(pageName) {
+            // Update active navigation link
+            document.querySelectorAll('.nav-link').forEach(link => {
+                link.classList.remove('active');
+            });
+            const activeLink = document.querySelector(`[data-page="${pageName}"]`);
+            if (activeLink) {
+                activeLink.classList.add('active');
+            }
+            
+            // Load page in iframe
+            const iframe = document.getElementById('contentFrame');
+            const route = pageRoutes[pageName] || '/';
+            iframe.src = streamlitBaseUrl + route;
+        }
+        
+        // Update URL hash when page changes (for bookmarking)
+        function loadPageWithHash(pageName) {
+            loadPage(pageName);
+            window.location.hash = pageName;
+        }
+        
+        // Initialize page immediately (don't wait for DOMContentLoaded)
+        (function initializePage() {
+            // Get hash from URL, default to 'Home'
+            const hash = window.location.hash.substring(1) || 'Home';
+            const pageName = pageRoutes[hash] ? hash : 'Home';
+            
+            // Set the hash if not present (ensures URL shows #Home)
+            if (!window.location.hash) {
+                window.location.hash = 'Home';
+            }
+            
+            // Load the page
+            loadPage(pageName);
+        })();
+        
+        // Set up nav link handlers after DOM is ready
+        document.addEventListener('DOMContentLoaded', function() {
+            // Update nav links to use hash
+            document.querySelectorAll('.nav-link').forEach(link => {
+                const pageName = link.getAttribute('data-page');
+                link.onclick = function(e) {
+                    e.preventDefault();
+                    loadPageWithHash(pageName);
+                };
+            });
+            
+            // Update brand link
+            document.querySelector('.topnav-brand').onclick = function(e) {
+                e.preventDefault();
+                loadPageWithHash('Home');
+            };
+        });
+        
+        // Handle browser back/forward buttons
+        window.addEventListener('hashchange', function() {
+            const hash = window.location.hash.substring(1) || 'Home';
+            if (pageRoutes[hash]) {
+                loadPage(hash);
+            }
+        });
+        
+        // Check if Streamlit is running (log only, don't clear iframe)
+        fetch(streamlitBaseUrl)
+            .then(() => console.log('Streamlit server is running'))
+            .catch(() => {
+                console.warn('Streamlit server not found. Make sure Streamlit is running on port 8501');
+            });
+    </script>
+</body>
+</html>
+

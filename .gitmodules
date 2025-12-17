@@ -1,0 +1,3 @@
+[submodule "yelp-mcp"]
+	path = yelp-mcp
+	url = https://github.com/philmui/yelp-mcp.git

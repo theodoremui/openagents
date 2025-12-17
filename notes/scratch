@@ -1,0 +1,36 @@
+Based on the latest progress in your Voice module implementation: '/Users/pmui/dev/halo/openagents/docs/VOICE_IMPLEMENTATION_PROGRESS.md' and the 
+overall design and architecture: '/Users/pmui/dev/halo/openagents/docs/VOICE_IMPLEMENTATION_DESIGN.md', and overall summary of design: 
+'/Users/pmui/dev/halo/openagents/docs/VOICE_IMPLEMENTATION_DESIGN.md', as well as supporting both async and real-time voice design: 
+'/Users/pmui/dev/halo/openagents/docs/VOICE_DUAL_MODE_ARCHITECTURE.md', systematically continue to implement the Voice capabilities based on latest 
+documentation from: 
+
+https://github.com/elevenlabs/elevenlabs-python, 
+https://github.com/livekit/python-sdks,
+'/Users/pmui/dev/halo/openagents/notes/openai_stt.md', 
+'/Users/pmui/dev/halo/openagents/notes/openai_tts.md'.
+
+Carefully and systematically evaluate 3 alternative approaches based on quality of architectural design, modularity, extensibility, robustness, scalability, and maintainability.  Thoughtfully 
+select the best approach for implementation.  Write thoroughly tests for all, test everything, and systematically fix all issues deeply.  Update existing 
+documentations and document with diagrams using mermaid diagrams. 
+
+
+
+#----------
+# docs
+#----------
+
+Systematically merge the content of 
+
+into 
+
+
+by removing any duplication and 
+sensibly inserting the right content into the right part of the overall doc flow.  Finally remove the original source docs. 
+
+
+
+The collapsable right panel continues to not have a handle  to allow the user to drag in order to widen or shrink the width of the right panel.  The goal is to allow more canvas area to visualize the MoE Flow through different components of the MoE orchestrators and specialist agents.  
+
+Deeply think about, and plan carefully, how best to do this with best OOP engineering practices, SOLID, DRY, YAGNI, modularity, extensibility and robustness. Test your implementation carefully and systematically.  Fix all remaining issues once and for all.
+
+

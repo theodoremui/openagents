@@ -1,0 +1,144 @@
+# SmartRouter Configuration
+# Advanced multi-agent orchestrator with LLM-based routing and synthesis
+
+# Enable/disable SmartRouter
+enabled: true
+
+# Model configurations for different SmartRouter operations
+models:
+  # Query interpretation: Analyze and classify user queries
+  interpretation:
+    name: "gpt-4.1-mini"
+    temperature: 0.1 # Low temperature for consistent classification
+    max_tokens: 500
+
+  # Query decomposition: Break queries into subqueries
+  decomposition:
+    name: "gpt-4.1-mini"
+    temperature: 0.2 # Moderate temperature for creative decomposition
+    max_tokens: 1000
+
+  # Response synthesis: Merge multiple responses
+  synthesis:
+    name: "gpt-4.1-mini"
+    temperature: 0.3 # Higher temperature for natural synthesis
+    max_tokens: 2000
+
+  # Answer evaluation: LLM Judge for quality assessment
+  evaluation:
+    name: "gpt-4.1-mini"
+    temperature: 0.01 # Very low temperature for objective evaluation
+    max_tokens: 500
+
+# Decomposition settings
+decomposition:
+  # Maximum number of subqueries allowed
+  max_subqueries: 8
+
+  # Maximum recursion depth for decomposition
+  recursion_limit: 3
+
+  # Threshold for triggering fallback (0.0-1.0)
+  fallback_threshold: 0.4
+
+# Agent capability map
+# Maps agent IDs to their capabilities
+# This can override or extend capabilities from open_agents.yaml
+capabilities:
+  # Chitchat agent for social/conversational queries
+  chitchat:
+    - conversation
+    - social
+    - friendly_chat
+    - positive_interaction
+    - greeting
+    - farewell
+    - gratitude
+    - small_talk
+
+  # Geography and location services
+  geo:
+    - geocoding
+    - reverse_geocoding
+    - address_lookup
+    - geography
+
+  # Financial data and stock information
+  finance:
+    - stocks
+    - market_data
+    - financial_data
+    - company_info
+    - finance
+
+  # Mapping and directions
+  map:
+    - mapping
+    - directions
+    - routes
+    - places
+    - static_maps
+    - interactive_maps
+
+  # Perplexity AI-powered research AND real-time information
+  # Perplexity is ideal for weather, news, current events, and general search
+  perplexity:
+    - research
+    - deep_search
+    - ai_search
+    - perplexity
+    - search           # General web search
+    - web_search       # Web search capability
+    - realtime         # Real-time information
+    - weather          # Weather queries
+    - news             # News and current events
+    - current_events   # Current events
+
+  # Wikipedia knowledge base
+  wiki:
+    - wikipedia
+    - encyclopedia
+    - definitions
+    - wiki
+
+  # Yelp business search
+  yelp:
+    - local_business
+    - restaurants
+    - reviews
+    - business_search
+    - yelp
+
+  # Yelp MCP agent (with map visualization)
+  yelp_mcp:
+    - local_business
+    - restaurants
+    - reviews
+    - business_maps
+    - yelp
+
+# Evaluation settings
+evaluation:
+  # Fallback message when answer quality is insufficient
+  fallback_message: "I don't have enough information to answer this question accurately."
+
+  # Minimum quality threshold (0.0-1.0)
+  # Answers below this threshold trigger fallback
+  quality_threshold: 0.4
+
+  # Evaluation criteria
+  criteria:
+    - completeness
+    - accuracy
+    - clarity
+    - faithfulness
+    - relevance
+    - actionability
+
+# Error handling settings
+error_handling:
+  # Timeout for agent responses (seconds)
+  timeout: 30
+
+  # Number of retries for failed requests
+  retries: 2

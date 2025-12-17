@@ -1,0 +1,298 @@
+# MoE (Mixture of Experts) Orchestrator Configuration
+#
+# This configuration defines how the MoE orchestrator selects and combines
+# expert agents to answer user queries.
+
+enabled: true
+
+# MoE orchestration settings
+moe:
+  # Expert selection strategy
+  # Options:
+  #   - "capability_match": Keyword-based matching (fast, deterministic)
+  #   - "semantic": Embedding-based matching (more robust, requires OpenAI API)
+  selection_strategy: "semantic" # Use semantic embeddings for better routing
+
+  # Dynamic agent selection (adaptive, not fixed)
+  # The system selects 1-N agents based on query relevance:
+  # - Single-domain queries → 1 agent (e.g., "hello" → chitchat)
+  # - Multi-domain queries → 2-3 agents (e.g., "restaurants in SF" → yelp + map)
+  # Selection stops when relevance gap between agents > threshold
+  top_k_experts: 3 # Max number of experts (upper bound, not fixed)
+
+  # Relevance thresholds
+  confidence_threshold: 0.5 # Min similarity score to consider an expert
+  relevance_gap_threshold:
+    0.15 # Stop selecting if gap to next expert > this (semantic)
+    # (0.2 for capability_match, less precise)
+
+  # Fast-path bypass (for minimum latency on simple queries)
+  # Detects chitchat/greetings semantically and routes directly to single agent
+  # Bypasses: expert selection, multi-agent execution, result synthesis
+  fast_path_enabled: true # Enable fast-path detection
+  fast_path_threshold:
+    0.75 # Similarity threshold for fast-path (0.75 = recommended)
+    # 0.85 = strict (only very similar queries)
+    # 0.65 = loose (more queries bypass)
+
+  # Result mixing strategy
+  mixing_strategy: "synthesis" # Use LLM to synthesize expert outputs
+
+  # Synthesis prompt configuration
+  # The prompt template used for LLM-based result synthesis
+  # Template variables: {weighted_results} - formatted expert responses with confidence scores
+  #                    {query} - original user query
+  #
+  # IMPORTANT: This produces DETAILED MARKDOWN for the Chat Interface.
+  # Voice Mode will separately summarize this output for spoken audio.
+  synthesis_prompt: |
+    Synthesize the following expert responses into a comprehensive, well-structured answer.
+
+    Expert Responses:
+    {weighted_results}
+
+    Original Query: {query}
+
+    OUTPUT FORMAT - DETAILED MARKDOWN FOR CHAT INTERFACE:
+    Produce a rich, detailed response with proper markdown formatting:
+
+    STRUCTURE GUIDELINES:
+    - Use ## headings for main sections, ### for subsections
+    - Use **bold** for business names, key terms, and important points
+    - Use bullet points (-) for listing items, features, or options
+    - Use numbered lists (1. 2. 3.) for step-by-step instructions or ranked results
+    - Include all relevant details: ratings, addresses, phone numbers, hours, prices
+    - Format links as [Text](url) for clickable references
+    - Use > blockquotes for notable quotes or highlights
+    - Use tables for comparative information when appropriate
+
+    CONTENT REQUIREMENTS:
+    - Combine ALL relevant information from expert responses
+    - Weight responses by their confidence scores (higher weight = more reliable)
+    - Resolve contradictions by favoring higher-weighted experts
+    - Include specific details: ratings (e.g., "4.5 ⭐"), addresses, contact info
+    - Provide context and explanations where helpful
+    - Maintain factual accuracy - do not invent information
+    - For coordinates/lat-lng, only include inside json blocks (not in prose)
+
+    EXAMPLE FORMAT:
+    ## Top Pizza Places in San Carlos, CA
+
+    ### 1. **Pizzeria Uno**
+    - ⭐ **Rating**: 4.7/5 (234 reviews)
+    - 📍 **Address**: 123 Main St, San Carlos, CA 94070
+    - 📞 **Phone**: (650) 555-1234
+    - 💰 **Price**: $$
+    - ⏰ **Hours**: 11am-10pm daily
+    - 🔗 [View on Yelp](https://yelp.com/...)
+
+    > "Best wood-fired pizza in the Bay Area!" - Recent review
+
+    ### 2. **Tony's Slice House**
+    ...
+
+    NON-NEGOTIABLES - PRESERVE INTERACTIVE CONTENT:
+    - If any expert response contains a ```json code block (especially with "type": "interactive_map"),
+      YOU MUST include that EXACT ```json block in your synthesized response
+    - These JSON blocks are essential for rendering interactive maps, graphs, and visualizations
+    - DO NOT summarize, paraphrase, or remove ```json blocks - copy them verbatim
+    - Place the ```json block at the appropriate location in your response (usually at the end)
+
+    Synthesized Response:
+
+  # Performance settings
+  parallel_execution: true # Execute experts concurrently
+  max_concurrent: 10 # Max concurrent expert executions
+  timeout_per_expert: 12.0 # Timeout per expert (seconds)
+  overall_timeout: 30.0 # Overall timeout (seconds)
+
+# Model configurations for MoE operations
+models:
+  # Model for expert selection (lightweight, fast)
+  selection:
+    name: "gpt-4.1-nano"
+    temperature: 0.1
+    max_tokens: 500
+
+  # Model for result mixing/synthesis (higher quality)
+  mixing:
+    name: "gpt-4.1-mini"
+    temperature: 0.3
+    max_tokens: 2000
+
+# Expert groups - Maps agents to capabilities
+# Each expert group defines agents and their capabilities
+experts:
+  location_expert:
+    # Put `map` first so that when we hit a tight top_k_experts cap,
+    # map visualization isn't dropped (interactive_map rendering depends on it).
+    agents: ["map", "geo"]
+    capabilities:
+      - geocoding
+      - reverse_geocoding
+      - directions
+      - places
+      - maps
+      - mapping
+      - navigation
+      - address
+      - location
+      - coordinates
+      - driving
+      - route
+      - routing
+      - travel
+      - distance
+      - detailed
+      - interactive
+      - visualization
+      - visualize
+      # Common location query terms
+      - where
+      - near
+      - nearby
+      - around
+      - city
+      - area
+      - go
+      - going
+      - way
+      - path
+      - street
+      - road
+      # Action verbs for directions and visualization
+      - drive
+      - walk
+      - navigate
+      - show
+      - display
+      - pin
+      - marker
+    weight: 1.0
+
+  search_expert:
+    agents: ["one", "perplexity"]
+    capabilities:
+      - web_search
+      - search
+      - realtime
+      - internet
+      - web
+      - find
+      - lookup
+      - research
+    weight: 1.0
+
+  business_expert:
+    agents: ["yelp", "yelp_mcp"]
+    capabilities:
+      - local_business
+      - reviews
+      - restaurants
+      - food
+      - dining
+      - bars
+      - cafes
+      - shops
+      - businesses
+      - ratings
+    weight: 1.0
+
+  knowledge_expert:
+    agents: ["wiki"]
+    capabilities:
+      - wikipedia
+      - encyclopedia
+      - history
+      - facts
+      - knowledge
+      - information
+      - explain
+      - definition
+      - concept
+      - theory
+      - science
+      - technology
+      - computing
+      - physics
+      - chemistry
+      - biology
+      - mathematics
+      - learn
+      - understand
+    weight: 1.0
+
+  finance_expert:
+    agents: ["finance"]
+    capabilities:
+      - stocks
+      - market_data
+      - financial
+      - stock_market
+      - trading
+      - investment
+      - ticker
+      - price
+    weight: 1.0
+
+  chitchat_expert:
+    agents: ["chitchat"]
+    capabilities:
+      - conversation
+      - social
+      - friendly_chat
+      - greetings
+      - small_talk
+      - general
+      - hello
+      - hi
+      - hey
+      - howdy
+      - thanks
+      - thank
+      - goodbye
+      - bye
+      - how
+      - you
+      - feeling
+      - mood
+    weight: 0.5 # Lower weight - used as fallback
+
+# Cache configuration
+cache:
+  enabled: true
+  type: "semantic" # Cache type: semantic, exact, or hybrid
+
+  # Storage backend configuration
+  storage:
+    backend: "sqlite"
+    path: "data/orchestration/moe/cache/semantic.db"
+
+  # Cache policy
+  policy:
+    similarity_threshold: 0.9 # For semantic matching (0-1, 1=exact)
+    ttl: 3600 # Time to live (seconds) - 1 hour
+    max_entries: 10000 # Max cache entries
+
+# Error handling
+error_handling:
+  timeout: 30.0 # Overall timeout
+  retries: 2 # Retry count on failure
+  fallback_agent: "one" # Fallback to OneAgent (web search)
+  fallback_message: "I apologize, but I encountered an issue processing your request. Please try rephrasing or asking something else."
+
+# Tracing and observability
+tracing:
+  enabled: true
+
+  # Storage for traces
+  storage:
+    backend: "sqlite"
+    path: "data/orchestration/moe/traces/orchestration.db"
+
+  # Export options
+  exporters:
+    - type: "json"
+      path: "data/orchestration/moe/traces/json/"
+    - type: "console"
+      level: "info" # Log level: debug, info, warning, error
