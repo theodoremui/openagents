@@ -1,0 +1,4 @@
+# Heroku Python buildpack detection
+# Actual dependencies are in pyproject.toml and installed via uv in bin/post_compile
+uv>=0.4.0
+-e .
