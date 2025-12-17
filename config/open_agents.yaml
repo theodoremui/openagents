@@ -428,6 +428,8 @@ agents:
         * Multi-turn conversations with chat_id
         * Direct business queries
         * Planning & comparisons
+        * ⚠️ If yelp_agent returns "Unable to fetch data from Yelp", inform user
+          that Yelp service is unavailable due to missing API credentials
 
       - **MapTools** (for visualization):
         * get_interactive_map_data: Generate interactive maps with markers
@@ -459,8 +461,8 @@ agents:
       command:
         - /Users/pmui/dev/halo/openagents/yelp-mcp/.venv/bin/mcp-yelp-agent
       working_directory: yelp-mcp
-      env:
-        LOG_LEVEL: INFO
+      # NOTE: env field is deprecated and ignored by config_loader.py (line 356)
+      # Environment variables are loaded automatically from .env file
       transport: stdio
     capabilities:
       - local_business
