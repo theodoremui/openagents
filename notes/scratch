@@ -40,4 +40,7 @@ Deeply think about, and plan carefully, how best to do this with best OOP engine
 # heroku
 #----------
 
-https://openagents-realtime-06eab94e998c.herokuapp.com/ deployed to Heroku
+App	Endpoint URL
+openagents-api	https://openagents-api-4816e41904c5.herokuapp.com/
+openagents-web	https://openagents-web-d694560f359d.herokuapp.com/
+openagents-realtime	https://openagents-realtime-06eab94e998c.herokuapp.com/

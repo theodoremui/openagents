@@ -2016,8 +2016,8 @@ EOF
     
     git push heroku-realtime main
     
-    # Scale worker dyno
-    heroku ps:scale web=0 worker=1 --app openagents-realtime
+    # Scale worker dyno (no web process - only worker defined in Procfile)
+    heroku ps:scale worker=1 --app openagents-realtime
     
     echo -e "${GREEN}✅ Realtime Worker deployed${NC}"
 }
