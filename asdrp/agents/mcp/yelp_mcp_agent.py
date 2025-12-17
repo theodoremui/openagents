@@ -278,25 +278,42 @@ def create_yelp_mcp_agent(
             )
 
         # Prepare environment variables
-        # CRITICAL: Explicitly reload .env to ensure YELP_API_KEY is present
-        # This is a failsafe in case os.environ doesn't have it from module load
-        load_dotenv(find_dotenv(), override=False)  # Don't override existing vars
+        # CRITICAL: Aggressively ensure YELP_API_KEY is loaded from .env
+        # Strategy: Try multiple methods to load the API key
 
-        # Copy all environment variables (includes YELP_API_KEY from .env)
+        # Method 1: Explicit reload from .env file
+        project_root = Path(__file__).parent.parent.parent.parent
+        dotenv_path = project_root / ".env"
+
+        if dotenv_path.exists():
+            load_dotenv(dotenv_path, override=False)
+        else:
+            # Fallback: Try find_dotenv()
+            load_dotenv(find_dotenv(), override=False)
+
+        # Copy all environment variables
         env = os.environ.copy()
 
-        # CRITICAL: Explicitly validate and ensure YELP_API_KEY is present
-        # The MCP subprocess REQUIRES this environment variable to function
+        # CRITICAL: Validate YELP_API_KEY is present
         if "YELP_API_KEY" not in env:
-            # Try loading again from .env (defensive programming)
-            load_dotenv(find_dotenv())
-            if "YELP_API_KEY" not in os.environ:
+            # Final attempt: Read .env file directly and parse it
+            if dotenv_path.exists():
+                with open(dotenv_path, 'r') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line.startswith('YELP_API_KEY='):
+                            key_value = line.split('=', 1)[1].strip().strip('"').strip("'")
+                            env['YELP_API_KEY'] = key_value
+                            break
+
+            # If still not found, raise error
+            if "YELP_API_KEY" not in env:
                 raise AgentException(
                     "YELP_API_KEY environment variable is required but not found. "
+                    f"Searched in: {dotenv_path}. "
                     "Please ensure it's set in your .env file at the project root.",
                     agent_name="yelp_mcp"
                 )
-            env = os.environ.copy()  # Re-copy after reload
 
         # Allow programmatic override of environment variables (for testing/advanced usage)
         # Note: When loading from YAML config, env is set to None, so this only applies
