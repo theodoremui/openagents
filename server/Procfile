@@ -1,2 +1,2 @@
-web: python -m server.main --host 0.0.0.0 --port $PORT
+web: python -m main --host 0.0.0.0 --port $PORT
 # worker: python -m server.voice.realtime.worker start
