@@ -8,19 +8,19 @@ A production-ready **multi-agent orchestration system** with real-time voice cap
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                              FRONTEND (Next.js)                              │
+│                              FRONTEND (Next.js)                             │
 │  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────────────┐│
-│  │ Chat Interface│ │ Voice Mode   │ │ MoE Trace    │ │ Interactive Maps     ││
-│  │ (Text + Stream)│ │ (WebRTC)     │ │ Visualization│ │ (Google Maps)        ││
+│  │ Chat Interface│ │ Voice Mode   │ │ MoE Trace    │ │ Interactive Maps    ││
+│  │ (Text + Stream)│ │ (WebRTC)     │ │ Visualization│ │ (Google Maps)      ││
 │  └──────────────┘ └──────────────┘ └──────────────┘ └──────────────────────┘│
 └─────────────────────────────────────────────────────────────────────────────┘
                                       │
                          HTTP/SSE ────┴──── WebRTC (LiveKit)
                                       │
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                           BACKEND (FastAPI)                                  │
+│                           BACKEND (FastAPI)                                 │
 │  ┌──────────────────────────────────────────────────────────────────────┐   │
-│  │                     Orchestration Layer                               │   │
+│  │                     Orchestration Layer                              │   │
 │  │  ┌─────────────────────────┐    ┌─────────────────────────────────┐  │   │
 │  │  │   MoE Orchestrator      │    │      SmartRouter                │  │   │
 │  │  │  - Expert Selection     │    │  - Capability Routing           │  │   │
@@ -30,7 +30,7 @@ A production-ready **multi-agent orchestration system** with real-time voice cap
 │  │  └─────────────────────────┘    └─────────────────────────────────┘  │   │
 │  └──────────────────────────────────────────────────────────────────────┘   │
 │  ┌──────────────────────────────────────────────────────────────────────┐   │
-│  │                        Agent Pool                                     │   │
+│  │                        Agent Pool                                    │   │
 │  │  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌──────────┐ │   │
 │  │  │Chitchat│ │  Geo   │ │ Finance│ │  Map   │ │  Wiki  │ │Perplexity│ │   │
 │  │  └────────┘ └────────┘ └────────┘ └────────┘ └────────┘ └──────────┘ │   │
@@ -44,7 +44,7 @@ A production-ready **multi-agent orchestration system** with real-time voice cap
                               LiveKit Workers
                                       │
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                    REAL-TIME VOICE (LiveKit Agents)                          │
+│                    REAL-TIME VOICE (LiveKit Agents)                         │
 │  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────────────┐│
 │  │ STT (Whisper)│ │ MoE Agent    │ │ TTS (OpenAI) │ │ Semantic Endpointing ││
 │  │ Speech→Text  │ │ Processing   │ │ Text→Speech  │ │ Turn Detection       ││
