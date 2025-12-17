@@ -49,6 +49,9 @@ You have access to TWO sets of tools:
    - Multi-turn conversations with follow-up questions
    - Direct business queries without prior search
    - Conversational restaurant reservations (when enabled)
+   - ⚠️ If yelp_agent returns "Unable to fetch data from Yelp", this means the YELP_API_KEY
+     environment variable is missing. Inform the user that the Yelp service is unavailable
+     due to missing API credentials and suggest they check the server configuration.
 
 2. **MapTools** (for interactive map visualization):
    - get_interactive_map_data: Generate interactive Google Maps with business locations
@@ -275,8 +278,11 @@ def create_yelp_mcp_agent(
             )
 
         # Prepare environment variables
-        # Environment variables are loaded from .env file via python-dotenv
-        # at module load time (lines 25-26), so os.environ already contains them
+        # CRITICAL: Explicitly reload .env to ensure YELP_API_KEY is present
+        # This is a failsafe in case os.environ doesn't have it from module load
+        load_dotenv(find_dotenv(), override=False)  # Don't override existing vars
+
+        # Copy all environment variables (includes YELP_API_KEY from .env)
         env = os.environ.copy()
 
         # CRITICAL: Explicitly validate and ensure YELP_API_KEY is present
@@ -298,11 +304,18 @@ def create_yelp_mcp_agent(
         if mcp_server_config.env:
             env.update(mcp_server_config.env)
 
-        # Debug: Log environment variable status
-        print(f"[YelpMCPAgent] Environment variables prepared:")
-        print(f"[YelpMCPAgent]   YELP_API_KEY present: {bool(env.get('YELP_API_KEY'))}")
-        print(f"[YelpMCPAgent]   YELP_API_KEY (first 10): {env.get('YELP_API_KEY', 'NOT_SET')[:10]}...")
-        print(f"[YelpMCPAgent]   Working directory: {work_dir}")
+        # Debug: Log environment variable status (CRITICAL for debugging MCP issues)
+        import sys
+        yelp_key_status = bool(env.get('YELP_API_KEY'))
+        yelp_key_preview = env.get('YELP_API_KEY', 'NOT_SET')[:15] + '...' if env.get('YELP_API_KEY') else 'NOT_SET'
+
+        print(f"[YelpMCPAgent] =========== MCP ENVIRONMENT DEBUG ===========", file=sys.stderr)
+        print(f"[YelpMCPAgent] YELP_API_KEY present: {yelp_key_status}", file=sys.stderr)
+        print(f"[YelpMCPAgent] YELP_API_KEY preview: {yelp_key_preview}", file=sys.stderr)
+        print(f"[YelpMCPAgent] Working directory: {work_dir}", file=sys.stderr)
+        print(f"[YelpMCPAgent] MCP command: {mcp_server_config.command}", file=sys.stderr)
+        print(f"[YelpMCPAgent] Config env field: {'null (inherit all)' if mcp_server_config.env is None else f'{len(mcp_server_config.env)} vars'}", file=sys.stderr)
+        print(f"[YelpMCPAgent] ===========================================", file=sys.stderr)
 
         # Normalize LOG_LEVEL to uppercase for FastMCP compatibility
         # FastMCP expects uppercase log levels: DEBUG, INFO, WARNING, ERROR, CRITICAL
