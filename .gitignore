@@ -1,4 +1,4 @@
-# Atlas specific exclude files
+# Python specific 
 .venv/
 venv/
 venv*/
