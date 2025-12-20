@@ -255,6 +255,12 @@ class MoEOrchestrator:
             MoEResult with response and trace
         """
         import time
+        from asdrp.orchestration.moe.performance_monitor import get_performance_monitor
+        
+        # Initialize performance monitoring
+        perf_monitor = get_performance_monitor()
+        perf_context = perf_monitor.start_request()
+        
         # Orchestrators must always have session-level memory. If caller didn't provide a session_id,
         # generate one (caller should persist/reuse it across turns for multi-turn continuity).
         if session_id is None:
@@ -272,7 +278,7 @@ class MoEOrchestrator:
                 fast_path_agent = await self._fast_path.detect_fast_path(query)
                 if fast_path_agent:
                     logger.info(f"[MoE] Fast-path bypass → {fast_path_agent}")
-                    return await self._execute_fast_path(
+                    result = await self._execute_fast_path(
                         fast_path_agent,
                         query,
                         session_id,
@@ -280,14 +286,21 @@ class MoEOrchestrator:
                         request_id,
                         trace
                     )
+                    perf_monitor.finish_request(perf_context, cache_hit=False)
+                    return result
 
             # 2. Check cache
+            cache_hit = False
             if self._cache and self._config.cache.enabled:
                 cached = await self._cache.get(query)
                 if cached:
-                    return self._build_cached_result(cached, start_time, request_id, trace)
+                    cache_hit = True
+                    result = self._build_cached_result(cached, start_time, request_id, trace)
+                    perf_monitor.finish_request(perf_context, cache_hit=True)
+                    return result
 
             # 2. Select experts
+            perf_monitor.record_selection_start(perf_context)
             trace.selection_start = time.time()
             max_k = self._config.moe.get("top_k_experts", 3)
             from asdrp.orchestration.moe.exceptions import ExpertSelectionException
@@ -313,19 +326,23 @@ class MoEOrchestrator:
                 )
             except Exception as e:
                 # Unexpected selector errors should use the configured fallback agent.
-                return await self._handle_fallback(query, session_id, e, trace, start_time)
+                result = await self._handle_fallback(query, session_id, e, trace, start_time)
+                perf_monitor.finish_request(perf_context, cache_hit=False)
+                return result
 
             # Defensive: selectors must return list[str]. If a selector returns None (or any
             # malformed value), fail open to fallback agent instead of crashing later with
             # confusing "NoneType is not subscriptable/iterable" errors.
             if not isinstance(selected_expert_ids, list):
-                return await self._handle_fallback(
+                result = await self._handle_fallback(
                     query,
                     session_id,
                     Exception(f"Selector returned invalid type: {type(selected_expert_ids).__name__}"),
                     trace,
                     start_time
                 )
+                perf_monitor.finish_request(perf_context, cache_hit=False)
+                return result
 
             # Map/pins queries are expected to return an interactive map payload.
             # Ensure MapAgent isn't dropped due to k-limit truncation (common when combined with Yelp agents).
@@ -339,10 +356,17 @@ class MoEOrchestrator:
                     f"  After:  {selected_expert_ids}"
                 )
 
+            # Performance optimization: filter experts based on circuit breaker status
+            optimized_expert_ids = perf_monitor.optimize_expert_selection(selected_expert_ids, max_k)
+            if optimized_expert_ids != selected_expert_ids:
+                logger.info(f"[MoE] Performance optimization changed expert selection: {selected_expert_ids} → {optimized_expert_ids}")
+                selected_expert_ids = optimized_expert_ids
+
             logger.info(f"[MoE] Final selected agents: {selected_expert_ids}")
 
             trace.selection_end = time.time()
             trace.selected_experts = selected_expert_ids
+            perf_monitor.record_selection_end(perf_context, selected_expert_ids)
 
             # Create expert details with initial "pending" status
             trace.expert_details = [
@@ -357,6 +381,8 @@ class MoEOrchestrator:
 
             # 3. Get agents from factory with sessions
             agents_with_sessions = []
+            failed_agents = []
+            
             for expert_id in selected_expert_ids:
                 try:
                     agent, session = await self._factory.get_agent_with_persistent_session(
@@ -394,6 +420,7 @@ class MoEOrchestrator:
                             break
                 except Exception as e:
                     logger.warning(f"Failed to get agent {expert_id}: {e}")
+                    failed_agents.append(expert_id)
 
                     # Mark as failed in trace
                     for detail in trace.expert_details:
@@ -403,13 +430,26 @@ class MoEOrchestrator:
                             break
                     continue
 
+            # Implement business agent fallback: if yelp_mcp fails, ensure yelp is available
+            if "yelp_mcp" in failed_agents and "yelp" not in [a[0] for a in agents_with_sessions]:
+                logger.info("[MoE] Implementing business agent fallback: yelp_mcp failed, adding yelp")
+                try:
+                    agent, session = await self._factory.get_agent_with_persistent_session("yelp", session_id)
+                    agents_with_sessions.append(("yelp", agent, session))
+                    logger.info("[MoE] ✅ Business agent fallback successful: yelp added")
+                except Exception as e:
+                    logger.warning(f"[MoE] Business agent fallback failed: {e}")
+
             if not agents_with_sessions:
                 # Fallback if no agents could be loaded
-                return await self._handle_fallback(
+                result = await self._handle_fallback(
                     query, session_id, Exception("No agents could be loaded"), trace, start_time
                 )
+                perf_monitor.finish_request(perf_context, cache_hit=False)
+                return result
 
             # 4. Execute in parallel
+            perf_monitor.record_execution_start(perf_context)
             trace.execution_start = time.time()
 
             # Update status to executing
@@ -427,23 +467,48 @@ class MoEOrchestrator:
                 timeout=self._config.moe.get("overall_timeout", 30.0)
             )
             if not isinstance(expert_results, list):
-                return await self._handle_fallback(
+                result = await self._handle_fallback(
                     query,
                     session_id,
                     Exception(f"Executor returned invalid type: {type(expert_results).__name__}"),
                     trace,
                     start_time
                 )
+                perf_monitor.finish_request(perf_context, cache_hit=False)
+                return result
             trace.execution_end = time.time()
             trace.expert_results = expert_results
+            perf_monitor.record_execution_end(perf_context, expert_results)
 
             # If all experts failed (common when API keys/tools are missing), fail open to the
             # configured fallback agent instead of returning an unhelpful apology.
+            successful_experts = []
             try:
-                if not any(getattr(r, "success", False) for r in expert_results):
-                    return await self._handle_fallback(
+                successful_experts = [r for r in expert_results if getattr(r, "success", False)]
+                if not successful_experts:
+                    logger.warning("[MoE] All selected experts failed - implementing fallback")
+                    result = await self._handle_fallback(
                         query, session_id, Exception("All selected experts failed"), trace, start_time
                     )
+                    perf_monitor.finish_request(perf_context, cache_hit=False)
+                    return result
+                else:
+                    # Partial success handling: log which experts succeeded/failed
+                    failed_experts = [r for r in expert_results if not getattr(r, "success", False)]
+                    if failed_experts:
+                        failed_ids = [getattr(r, "expert_id", "unknown") for r in failed_experts]
+                        successful_ids = [getattr(r, "expert_id", "unknown") for r in successful_experts]
+                        logger.info(f"[MoE] Partial success: {len(successful_experts)} succeeded ({successful_ids}), {len(failed_experts)} failed ({failed_ids})")
+                        
+                        # Special handling for business+map queries where map fails
+                        business_agents = ["yelp", "yelp_mcp"]
+                        map_agents = ["map", "geo"]
+                        
+                        successful_business = any(r for r in successful_experts if getattr(r, "expert_id", "") in business_agents)
+                        failed_map = any(r for r in failed_experts if getattr(r, "expert_id", "") in map_agents)
+                        
+                        if successful_business and failed_map and ("map" in query.lower() or "pins" in query.lower()):
+                            logger.info("[MoE] Business data available but map failed - will rely on geocoding fallback")
             except Exception:
                 # If expert_results is malformed for any reason, continue to mixing.
                 pass
@@ -479,6 +544,7 @@ class MoEOrchestrator:
                             break
 
             # 5. Mix results
+            perf_monitor.record_mixing_start(perf_context)
             trace.mixing_start = time.time()
             final_result = await self._mixer.mix(
                 expert_results,
@@ -486,6 +552,7 @@ class MoEOrchestrator:
                 query
             )
             trace.mixing_end = time.time()
+            perf_monitor.record_mixing_end(perf_context, final_result)
             # Extract content from MixedResult for trace (full content for visualization)
             if final_result and hasattr(final_result, 'content') and final_result.content:
                 trace.final_response = str(final_result.content)
@@ -506,11 +573,16 @@ class MoEOrchestrator:
             if self._cache and self._config.cache.enabled:
                 await self._cache.store(query, result)
 
+            # 8. Finish performance monitoring
+            perf_monitor.finish_request(perf_context, cache_hit=cache_hit)
+
             return result
 
         except Exception as e:
             # Fallback to default agent
-            return await self._handle_fallback(query, session_id, e, trace, start_time)
+            result = await self._handle_fallback(query, session_id, e, trace, start_time)
+            perf_monitor.finish_request(perf_context, cache_hit=False)
+            return result
 
     async def _execute_fast_path(
         self,
@@ -793,10 +865,17 @@ class MoEOrchestrator:
 
         Returns:
             Configured MoEOrchestrator
+            
+        Raises:
+            ConfigException: If configuration validation fails
         """
         from asdrp.orchestration.moe.expert_executor import ParallelExecutor
         from asdrp.orchestration.moe.result_mixer import WeightedMixer
         from asdrp.orchestration.moe.cache import SemanticCache
+        from asdrp.orchestration.moe.exceptions import ConfigException
+
+        # Validate configuration at startup
+        cls._validate_startup_configuration(config, agent_factory)
 
         # Choose selector based on config
         selection_strategy = config.moe.get("selection_strategy", "capability_match")
@@ -841,3 +920,144 @@ class MoEOrchestrator:
             cache=cache,
             fast_path_detector=fast_path
         )
+
+    @staticmethod
+    def _validate_startup_configuration(config: MoEConfig, agent_factory: AgentFactory) -> None:
+        """
+        Validate configuration at startup to prevent runtime errors.
+        
+        Args:
+            config: MoE configuration to validate
+            agent_factory: Agent factory to check agent availability
+            
+        Raises:
+            ConfigException: If configuration is invalid
+        """
+        from asdrp.orchestration.moe.exceptions import ConfigException
+        
+        logger.info("[MoE] Validating configuration at startup...")
+        
+        # 1. Validate agent existence
+        try:
+            # Get list of available agents from factory
+            available_agents = []
+            try:
+                # Try to get available agents from factory
+                if hasattr(agent_factory, 'get_available_agents'):
+                    available_agents = agent_factory.get_available_agents()
+                elif hasattr(agent_factory, '_agents'):
+                    available_agents = list(agent_factory._agents.keys())
+                else:
+                    # Fallback: assume common agents are available
+                    available_agents = ["yelp", "yelp_mcp", "map", "geo", "one", "chitchat", "wiki", "perplexity", "finance"]
+                    logger.warning("[MoE] Could not determine available agents from factory, using default list")
+            except Exception as e:
+                logger.warning(f"[MoE] Could not get available agents: {e}, skipping agent validation")
+                available_agents = []
+            
+            if available_agents:
+                # Validate that all expert agents exist
+                available_set = set(available_agents)
+                missing_agents = []
+                for expert_name, expert_config in config.experts.items():
+                    for agent_id in expert_config.agents:
+                        if agent_id not in available_set:
+                            missing_agents.append((expert_name, agent_id))
+                
+                if missing_agents:
+                    # Log warnings but don't fail startup - agents might be loaded later
+                    for expert_name, agent_id in missing_agents:
+                        logger.warning(
+                            f"[MoE] Expert '{expert_name}' references agent '{agent_id}' which may not be available. "
+                            f"Available agents: {sorted(available_agents)}. "
+                            f"This may cause runtime errors if the agent is actually missing."
+                        )
+                else:
+                    logger.info(f"[MoE] ✓ All expert agents validated against {len(available_agents)} available agents")
+        except ConfigException:
+            raise
+        except Exception as e:
+            logger.warning(f"[MoE] Agent validation failed with unexpected error: {e}")
+        
+        # 2. Validate synthesis prompt template for required variables
+        if config.moe.get("mixing_strategy") == "synthesis":
+            synthesis_prompt = config.moe.get("synthesis_prompt", "")
+            if synthesis_prompt:
+                required_vars = ["{weighted_results}", "{query}"]
+                missing_vars = [var for var in required_vars if var not in synthesis_prompt]
+                if missing_vars:
+                    error_msg = (
+                        f"Synthesis prompt template missing required variables: {missing_vars}. "
+                        f"The synthesis prompt must include {{weighted_results}} and {{query}} placeholders. "
+                        f"Current prompt: '{synthesis_prompt}'"
+                    )
+                    logger.error(f"[MoE] Configuration validation failed: {error_msg}")
+                    raise ConfigException(error_msg)
+                
+                logger.info("[MoE] ✓ Synthesis prompt template validated")
+        
+        # 3. Validate fallback agent exists
+        fallback_agent = config.error_handling.get("fallback_agent")
+        if fallback_agent and available_agents and fallback_agent not in available_agents:
+            error_msg = (
+                f"Fallback agent '{fallback_agent}' not found in available agents: {sorted(available_agents)}. "
+                f"Please ensure the fallback agent exists in config/open_agents.yaml or update "
+                f"the fallback_agent setting in config/moe.yaml"
+            )
+            logger.error(f"[MoE] Configuration validation failed: {error_msg}")
+            raise ConfigException(error_msg)
+        
+        if fallback_agent:
+            logger.info(f"[MoE] ✓ Fallback agent '{fallback_agent}' validated")
+        
+        # 4. Validate model configurations have required fields
+        required_models = ["selection", "mixing"]
+        for model_name in required_models:
+            if model_name not in config.models:
+                error_msg = (
+                    f"Missing required model configuration: '{model_name}'. "
+                    f"Please ensure both 'selection' and 'mixing' models are defined in config/moe.yaml"
+                )
+                logger.error(f"[MoE] Configuration validation failed: {error_msg}")
+                raise ConfigException(error_msg)
+            
+            model_config = config.models[model_name]
+            if not model_config.name:
+                error_msg = (
+                    f"Model '{model_name}' missing required 'name' field. "
+                    f"Please specify a valid model name (e.g., 'gpt-4.1-mini') in config/moe.yaml"
+                )
+                logger.error(f"[MoE] Configuration validation failed: {error_msg}")
+                raise ConfigException(error_msg)
+        
+        logger.info("[MoE] ✓ Model configurations validated")
+        
+        # 5. Validate expert group configurations
+        if not config.experts:
+            error_msg = (
+                "No expert groups defined. At least one expert group must be configured. "
+                "Please add expert groups to the 'experts' section in config/moe.yaml"
+            )
+            logger.error(f"[MoE] Configuration validation failed: {error_msg}")
+            raise ConfigException(error_msg)
+        
+        for expert_name, expert_config in config.experts.items():
+            if not expert_config.agents:
+                error_msg = (
+                    f"Expert group '{expert_name}' has no agents defined. "
+                    f"Each expert group must have at least one agent."
+                )
+                logger.error(f"[MoE] Configuration validation failed: {error_msg}")
+                raise ConfigException(error_msg)
+            
+            if not expert_config.capabilities:
+                error_msg = (
+                    f"Expert group '{expert_name}' has no capabilities defined. "
+                    f"Each expert group must have at least one capability."
+                )
+                logger.error(f"[MoE] Configuration validation failed: {error_msg}")
+                raise ConfigException(error_msg)
+        
+        logger.info(f"[MoE] ✓ All {len(config.experts)} expert groups validated")
+        
+        logger.info("[MoE] ✅ Configuration validation completed successfully")

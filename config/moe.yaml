@@ -97,13 +97,15 @@ moe:
     - These JSON blocks are essential for rendering interactive maps, graphs, and visualizations
     - DO NOT summarize, paraphrase, or remove ```json blocks - copy them verbatim
     - Place the ```json block at the appropriate location in your response (usually at the end)
+    - CRITICAL: Even if the JSON seems redundant or repetitive, include ALL ```json blocks from expert responses
+    - The frontend depends on these blocks for interactive rendering - omitting them breaks functionality
 
     Synthesized Response:
 
   # Performance settings
   parallel_execution: true # Execute experts concurrently
   max_concurrent: 10 # Max concurrent expert executions
-  timeout_per_expert: 12.0 # Timeout per expert (seconds)
+  timeout_per_expert: 25.0 # Timeout per expert (seconds) - increased for Map agent geocoding
   overall_timeout: 30.0 # Overall timeout (seconds)
 
 # Model configurations for MoE operations
@@ -171,7 +173,7 @@ experts:
     weight: 1.0
 
   search_expert:
-    agents: ["one", "perplexity"]
+    agents: ["one"]  # Removed perplexity temporarily until agent loading issue is resolved
     capabilities:
       - web_search
       - search

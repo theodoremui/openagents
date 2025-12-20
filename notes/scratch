@@ -44,3 +44,32 @@ App	Endpoint URL
 openagents-api	https://openagents-api-4816e41904c5.herokuapp.com/
 openagents-web	https://openagents-web-d694560f359d.herokuapp.com/
 openagents-realtime	https://openagents-realtime-06eab94e998c.herokuapp.com/
+
+
+
+#----------
+# queries
+#----------
+
+"Show me the most highly rated Greek restaurants in San Francisco pinned to a map.
+"
+For Kokkari Estiatorio, show me a few photos about this Greek restaurants and show me some reviews about this Greek restaurants.
+
+For driving from the Four Seasons hotel in Palo Alto to Kokkari Estiatorio, show me a detailed routing map please.
+
+#------------
+# Continuous Voice
+#------------
+
+The Voice Mode in the frontend app `frontend_web` is enabled by WebRTC provided by LiveKit  in the `server` folder.  The interaction with Voice Mode connected with MoE orchestrator is mostly working except when the user query is a long or multi-part one.   The Voice Mode tends to chop up the longer user query into parts and only process the last part of the longer user query right now.
+
+
+
+To detect a break in user's thought or query, there is a "Semantic Endpointing" module provided between the `asdrp` package and the `server` folder.  Can you thoughtfully evaluate how to make this complete user query much more robust against studder and/or long pauses in the user's query?  If a user adds to a query that is in process, we should just add that addition to the current query into a bigger query rather than just processing the "addition" as a separate query.
+
+
+
+The session memory right now in used by MoE and the Voice agent does not seem well designed or well tested.  Please ensure that the session memory works well to provided connected experiences for the query across multiple turns in a given session without the Voice Mode or the MoE orchestrator forgetting what has been discussed.  Use sensible memory design here for openai-agents.
+
+Apply best OOP software engineering principles, parsimony, modularity, SOLID, DRY, extensibility, dependency injection, YAGNI, Occam's Razor.  You must test everything and systematically fix all remaining issues completely.
+

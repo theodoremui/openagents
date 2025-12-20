@@ -157,8 +157,11 @@ async def make_fusion_ai_request(
     yelp_api_key = os.getenv("YELP_API_KEY")
 
     if not yelp_api_key:
-        logger.warning(
-            "YELP_API_KEY is missing from the environment. Unable to make authorized requests."
+        logger.error(
+            "CRITICAL: YELP_API_KEY environment variable is missing. "
+            "The MCP server cannot access Yelp Fusion AI without this API key. "
+            "Please ensure YELP_API_KEY is set in your .env file at the project root. "
+            "Check that the parent process (OpenAgents server) has loaded the .env file."
         )
         return None
 

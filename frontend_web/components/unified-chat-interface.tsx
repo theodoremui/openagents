@@ -12,7 +12,7 @@
 
 "use client";
 
-import { useState, useRef, useEffect, useMemo, memo, useCallback } from "react";
+import React, { useState, useRef, useEffect, useMemo, memo, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -306,6 +306,244 @@ const FallbackOriginalAnswer = ({ originalAnswer }: { originalAnswer: string }) 
 };
 
 /**
+ * Enhanced JSON block detection with multiple patterns and error handling
+ */
+const detectInteractiveMapBlocks = (content: string): Array<{ config: any; raw: string; source: string }> => {
+  const results: Array<{ config: any; raw: string; source: string }> = [];
+
+  const parseJson = (s: string) => {
+    try {
+      return JSON.parse(s);
+    } catch {
+      return null;
+    }
+  };
+
+  const validateMapConfig = (config: any): boolean => {
+    if (!config || typeof config !== 'object') return false;
+
+    // Must have a valid map_type
+    if (!['route', 'location', 'places'].includes(config.map_type)) return false;
+
+    // Route maps need origin and destination
+    if (config.map_type === 'route') {
+      return typeof config.origin === 'string' && typeof config.destination === 'string';
+    }
+
+    // Location and places maps should have center or markers
+    if (config.map_type === 'location' || config.map_type === 'places') {
+      const hasValidCenter = config.center &&
+        typeof config.center.lat === 'number' &&
+        typeof config.center.lng === 'number';
+      const hasValidMarkers = Array.isArray(config.markers) && config.markers.length > 0;
+
+      // Check if markers have coordinates OR addresses (for geocoding fallback)
+      const hasValidMarkerData = hasValidMarkers && config.markers.some((marker: any) => {
+        const hasCoords = typeof marker.lat === 'number' && typeof marker.lng === 'number';
+        const hasAddress = typeof marker.address === 'string' && marker.address.trim().length > 0;
+        return hasCoords || hasAddress;
+      });
+
+      return hasValidCenter || hasValidMarkerData;
+    }
+
+    return true;
+  };
+
+  const convertLegacyFormat = (data: any): any | null => {
+    if (!data || typeof data !== 'object') return null;
+
+    // Handle 'pins' format
+    if (data.pins && Array.isArray(data.pins)) {
+      return {
+        map_type: 'places' as const,
+        markers: data.pins.map((pin: any) => ({
+          lat: pin.coordinates?.lat || pin.lat,
+          lng: pin.coordinates?.lng || pin.lng,
+          address: pin.address,
+          title: pin.title || pin.name,
+          type: pin.type,
+        })),
+        center: data.center || (data.pins.length > 0 ? {
+          lat: data.pins.reduce((sum: number, p: any) => sum + (p.coordinates?.lat || p.lat || 0), 0) / data.pins.length,
+          lng: data.pins.reduce((sum: number, p: any) => sum + (p.coordinates?.lng || p.lng || 0), 0) / data.pins.length,
+        } : undefined),
+        zoom: data.zoom || 13,
+      };
+    }
+
+    // Handle direct config format
+    if (data.map_type || data.markers || data.origin) {
+      return data;
+    }
+
+    return null;
+  };
+
+  // Pattern 1: Standard fenced JSON blocks
+  const fencedJsonPattern = /```json\s*\n([\s\S]*?)\n```/gi;
+  let match;
+  while ((match = fencedJsonPattern.exec(content)) !== null) {
+    const jsonContent = match[1].trim();
+    const obj = parseJson(jsonContent);
+
+    if (obj && obj.type === 'interactive_map') {
+      let config = null;
+
+      if (obj.config && validateMapConfig(obj.config)) {
+        config = obj.config;
+      } else if (obj.data) {
+        config = convertLegacyFormat(obj.data);
+      }
+
+      if (config && validateMapConfig(config)) {
+        results.push({
+          config,
+          raw: JSON.stringify(obj, null, 2),
+          source: 'fenced-json'
+        });
+      }
+    }
+  }
+
+  // Pattern 2: JSON blocks without language specification
+  const genericCodePattern = /```\s*\n([\s\S]*?)\n```/gi;
+  fencedJsonPattern.lastIndex = 0; // Reset regex
+  while ((match = genericCodePattern.exec(content)) !== null) {
+    const codeContent = match[1].trim();
+    const obj = parseJson(codeContent);
+
+    if (obj && obj.type === 'interactive_map') {
+      let config = null;
+
+      if (obj.config && validateMapConfig(obj.config)) {
+        config = obj.config;
+      } else if (obj.data) {
+        config = convertLegacyFormat(obj.data);
+      }
+
+      if (config && validateMapConfig(config)) {
+        // Check if we already found this in fenced JSON
+        const alreadyFound = results.some(r =>
+          JSON.stringify(r.config) === JSON.stringify(config)
+        );
+
+        if (!alreadyFound) {
+          results.push({
+            config,
+            raw: JSON.stringify(obj, null, 2),
+            source: 'generic-code'
+          });
+        }
+      }
+    }
+  }
+
+  // Pattern 3: Inline JSON (no code fences)
+  if (results.length === 0) {
+    const obj = parseJson(content);
+    if (obj && obj.type === 'interactive_map') {
+      let config = null;
+
+      if (obj.config && validateMapConfig(obj.config)) {
+        config = obj.config;
+      } else if (obj.data) {
+        config = convertLegacyFormat(obj.data);
+      }
+
+      if (config && validateMapConfig(config)) {
+        results.push({
+          config,
+          raw: JSON.stringify(obj, null, 2),
+          source: 'inline-json'
+        });
+      }
+    }
+  }
+
+  // Pattern 4: Embedded JSON within text (extract JSON-like structures)
+  if (results.length === 0) {
+    const embeddedJsonPattern = /\{[^{}]*"type"\s*:\s*"interactive_map"[^{}]*\}/gi;
+    while ((match = embeddedJsonPattern.exec(content)) !== null) {
+      const obj = parseJson(match[0]);
+      if (obj && obj.type === 'interactive_map') {
+        let config = null;
+
+        if (obj.config && validateMapConfig(obj.config)) {
+          config = obj.config;
+        } else if (obj.data) {
+          config = convertLegacyFormat(obj.data);
+        }
+
+        if (config && validateMapConfig(config)) {
+          results.push({
+            config,
+            raw: JSON.stringify(obj, null, 2),
+            source: 'embedded-json'
+          });
+        }
+      }
+    }
+  }
+
+  return results;
+};
+
+/**
+ * Error boundary component for InteractiveMap rendering
+ */
+class MapErrorBoundary extends React.Component<
+  { children: React.ReactNode; fallback?: React.ReactNode },
+  { hasError: boolean; error?: Error }
+> {
+  constructor(props: { children: React.ReactNode; fallback?: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('[InteractiveMap] Rendering error:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return this.props.fallback || (
+        <div className="w-full p-4 border border-destructive/30 rounded-lg bg-destructive/5">
+          <div className="flex items-center gap-2 text-destructive mb-2">
+            <AlertCircle className="h-4 w-4" />
+            <span className="font-semibold text-sm">Map Rendering Error</span>
+          </div>
+          <p className="text-sm text-muted-foreground mb-2">
+            Failed to render interactive map. This may be due to:
+          </p>
+          <ul className="text-xs text-muted-foreground mb-2 list-disc list-inside">
+            <li>Missing or invalid coordinates</li>
+            <li>Malformed map configuration</li>
+            <li>Google Maps API issues</li>
+          </ul>
+          <p className="text-xs text-muted-foreground mb-2">
+            <strong>Troubleshooting:</strong> Check that markers have valid lat/lng coordinates or addresses for geocoding.
+          </p>
+          <details className="text-xs">
+            <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+              View error details
+            </summary>
+            <pre className="mt-2 p-2 bg-muted/50 rounded text-xs overflow-x-auto">
+              {this.state.error?.message || 'Unknown error'}
+            </pre>
+          </details>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+/**
  * MessageItem Component
  *
  * Renders a single message with memoization to prevent unnecessary rerenders.
@@ -319,6 +557,19 @@ const MessageItem = memo(({ message }: { message: Message }) => {
     const raw = (message.content || "").trim();
     if (!raw) return null;
 
+    // Use enhanced detection for interactive maps
+    const mapBlocks = detectInteractiveMapBlocks(raw);
+    if (mapBlocks.length > 0) {
+      // Use the first valid map block found
+      const mapBlock = mapBlocks[0];
+      return {
+        kind: "interactive_map" as const,
+        config: mapBlock.config,
+        raw: mapBlock.raw,
+        source: mapBlock.source,
+      };
+    }
+
     const parseJson = (s: string) => {
       try {
         return JSON.parse(s);
@@ -327,55 +578,12 @@ const MessageItem = memo(({ message }: { message: Message }) => {
       }
     };
 
-    // First, try to match if the whole message is a fenced JSON block
+    // Fallback: try to parse as generic JSON for other structured content
     const wholeMessageMatch = raw.match(/^```json\s*\n([\s\S]*?)\n```\s*$/i);
     if (wholeMessageMatch) {
       const fencedPayload = wholeMessageMatch[1].trim();
       const obj = parseJson(fencedPayload);
       if (obj && typeof obj === "object") {
-        // Interactive map payload (render as rich map)
-        if ((obj as any).type === "interactive_map") {
-          if ((obj as any).config) {
-            return {
-              kind: "interactive_map" as const,
-              config: (obj as any).config,
-              raw: JSON.stringify(obj, null, 2),
-            };
-          } else if ((obj as any).data) {
-            // Handle legacy 'data' format - convert to config
-            const data = (obj as any).data;
-            if (data.pins && Array.isArray(data.pins)) {
-              const config = {
-                map_type: 'places' as const,
-                markers: data.pins.map((pin: any) => ({
-                  lat: pin.coordinates?.lat || pin.lat,
-                  lng: pin.coordinates?.lng || pin.lng,
-                  address: pin.address,
-                  title: pin.title || pin.name,
-                  type: pin.type,
-                })),
-                center: data.center || (data.pins.length > 0 ? {
-                  lat: data.pins.reduce((sum: number, p: any) => sum + (p.coordinates?.lat || p.lat || 0), 0) / data.pins.length,
-                  lng: data.pins.reduce((sum: number, p: any) => sum + (p.coordinates?.lng || p.lng || 0), 0) / data.pins.length,
-                } : undefined),
-                zoom: data.zoom || 13,
-              };
-              return {
-                kind: "interactive_map" as const,
-                config,
-                raw: JSON.stringify(obj, null, 2),
-              };
-            } else if (data.map_type || data.markers || data.origin) {
-              // Data structure matches config structure
-              return {
-                kind: "interactive_map" as const,
-                config: data,
-                raw: JSON.stringify(obj, null, 2),
-              };
-            }
-          }
-        }
-
         // Generic structured response: try to extract a human-readable field
         const text = extractHumanTextFromJson(obj);
         if (typeof text === "string" && text.trim().length > 0) {
@@ -388,44 +596,6 @@ const MessageItem = memo(({ message }: { message: Message }) => {
 
         // Unknown JSON object
         return { kind: "unknown_json" as const, raw: JSON.stringify(obj, null, 2) };
-      }
-    }
-
-    // If not a whole-message JSON block, try parsing the raw content as JSON
-    // (for cases where JSON is sent without markdown fences)
-    const obj = parseJson(raw);
-    if (obj && typeof obj === "object" && (obj as any).type === "interactive_map") {
-      if ((obj as any).config) {
-        return {
-          kind: "interactive_map" as const,
-          config: (obj as any).config,
-          raw: JSON.stringify(obj, null, 2),
-        };
-      } else if ((obj as any).data) {
-        // Handle legacy format
-        const data = (obj as any).data;
-        if (data.pins && Array.isArray(data.pins)) {
-          const config = {
-            map_type: 'places' as const,
-            markers: data.pins.map((pin: any) => ({
-              lat: pin.coordinates?.lat || pin.lat,
-              lng: pin.coordinates?.lng || pin.lng,
-              address: pin.address,
-              title: pin.title || pin.name,
-              type: pin.type,
-            })),
-            center: data.center || (data.pins.length > 0 ? {
-              lat: data.pins.reduce((sum: number, p: any) => sum + (p.coordinates?.lat || p.lat || 0), 0) / data.pins.length,
-              lng: data.pins.reduce((sum: number, p: any) => sum + (p.coordinates?.lng || p.lng || 0), 0) / data.pins.length,
-            } : undefined),
-            zoom: data.zoom || 13,
-          };
-          return {
-            kind: "interactive_map" as const,
-            config,
-            raw: JSON.stringify(obj, null, 2),
-          };
-        }
       }
     }
 
@@ -461,53 +631,36 @@ const MessageItem = memo(({ message }: { message: Message }) => {
           const match = /language-(\w+)/.exec(className || '');
           const code = String(children).replace(/\n$/, '').trim();
 
-          // Detect interactive map JSON
+          // Detect interactive map JSON using enhanced detection
           if (match && match[1] === 'json') {
-            try {
-              const data = JSON.parse(code);
-              if (data.type === 'interactive_map') {
-                console.log('[InteractiveMap] Detected interactive_map JSON block:', { hasConfig: !!data.config, hasData: !!data.data });
-                // Support both 'config' (from MapTools) and 'data' (legacy/alternative format)
-                if (data.config) {
-                  console.log('[InteractiveMap] Using config format');
-                  return <InteractiveMap config={data.config} />;
-                } else if (data.data) {
-                  // Convert 'data' format to 'config' format if needed
-                  // This handles cases where the LLM might transform the structure
-                  console.log('[InteractiveMap] Detected "data" format, converting to "config"', data.data);
-                  // If data has 'pins', convert to markers format
-                  if (data.data.pins && Array.isArray(data.data.pins)) {
-                    const config = {
-                      map_type: 'places' as const,
-                      markers: data.data.pins.map((pin: any) => ({
-                        lat: pin.coordinates?.lat || pin.lat,
-                        lng: pin.coordinates?.lng || pin.lng,
-                        address: pin.address,
-                        title: pin.title || pin.name,
-                        type: pin.type,
-                      })),
-                      center: data.data.center || (data.data.pins.length > 0 ? {
-                        lat: data.data.pins.reduce((sum: number, p: any) => sum + (p.coordinates?.lat || p.lat || 0), 0) / data.data.pins.length,
-                        lng: data.data.pins.reduce((sum: number, p: any) => sum + (p.coordinates?.lng || p.lng || 0), 0) / data.data.pins.length,
-                      } : undefined),
-                      zoom: data.data.zoom || 13,
-                    };
-                    console.log('[InteractiveMap] Converted pins to markers config:', config);
-                    return <InteractiveMap config={config} />;
+            const mapBlocks = detectInteractiveMapBlocks(code);
+            if (mapBlocks.length > 0) {
+              const mapBlock = mapBlocks[0];
+              console.log('[InteractiveMap] Detected interactive_map JSON block via enhanced detection:', {
+                source: mapBlock.source,
+                hasConfig: !!mapBlock.config
+              });
+
+              return (
+                <MapErrorBoundary
+                  fallback={
+                    <div className="w-full p-4 border border-destructive/30 rounded-lg bg-destructive/5 my-2">
+                      <div className="flex items-center gap-2 text-destructive mb-2">
+                        <AlertCircle className="h-4 w-4" />
+                        <span className="font-semibold text-sm">Map Rendering Failed</span>
+                      </div>
+                      <p className="text-sm text-muted-foreground mb-2">
+                        Unable to render interactive map from JSON block. Showing code instead.
+                      </p>
+                      <code className="block p-3 rounded-lg bg-muted/60 text-foreground font-mono text-xs overflow-x-auto whitespace-pre">
+                        {code}
+                      </code>
+                    </div>
                   }
-                  // If data structure matches config structure, use it directly
-                  if (data.data.map_type || data.data.markers || data.data.origin) {
-                    console.log('[InteractiveMap] Using data as config directly');
-                    return <InteractiveMap config={data.data} />;
-                  }
-                  console.warn('[InteractiveMap] Unknown data format:', data.data);
-                } else {
-                  console.warn('[InteractiveMap] Missing both config and data fields:', data);
-                }
-              }
-            } catch (e) {
-              // Not valid JSON or not interactive map, render as code
-              console.debug('[InteractiveMap] Failed to parse JSON code block:', e);
+                >
+                  <InteractiveMap config={mapBlock.config} />
+                </MapErrorBoundary>
+              );
             }
           }
 
@@ -611,7 +764,35 @@ const MessageItem = memo(({ message }: { message: Message }) => {
     return (
       <div className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
         <div className="max-w-[85%]">
-          <InteractiveMap config={structured.config} />
+          <MapErrorBoundary
+            fallback={
+              <div className="w-full p-4 border border-destructive/30 rounded-lg bg-destructive/5">
+                <div className="flex items-center gap-2 text-destructive mb-2">
+                  <AlertCircle className="h-4 w-4" />
+                  <span className="font-semibold text-sm">Map Rendering Failed</span>
+                </div>
+                <p className="text-sm text-muted-foreground mb-2">
+                  Unable to render interactive map. Showing raw configuration instead.
+                </p>
+                <details className="text-xs">
+                  <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                    View raw JSON
+                  </summary>
+                  <pre className="mt-2 p-2 bg-muted/50 rounded text-xs overflow-x-auto whitespace-pre-wrap">
+                    {structured.raw}
+                  </pre>
+                </details>
+              </div>
+            }
+          >
+            <InteractiveMap config={structured.config} />
+          </MapErrorBoundary>
+          {/* Show detection source for debugging */}
+          {process.env.NODE_ENV === 'development' && (structured as any).source && (
+            <div className="mt-1 text-xs text-muted-foreground">
+              Detected via: {(structured as any).source}
+            </div>
+          )}
         </div>
       </div>
     );

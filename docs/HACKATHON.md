@@ -1,5 +1,5 @@
 
-### OpenAgents: a Voice-First Public‑Benefit Copilot that Acts, Explains, and Maps Reality
+### OpenAgents: a Voice-First Multi-agent Orchestration platform that interacts, explains, speaks with deep local knowledge.
 
 Most assistants answer. **OpenAgents mobilizes a team.** When a person is stressed, time‑poor, or in motion—on a phone, in a car, mid‑shift—information without action is just noise. OpenAgents is built for those moments: it **routes** a request to the right specialist agents, **runs them in parallel**, **synthesizes a detailed, well‑structured markdown plan for the screen**, and **speaks only a 2–3 sentence summary** so the user can keep moving.
 

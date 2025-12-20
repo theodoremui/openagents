@@ -49,6 +49,9 @@ You have access to TWO sets of tools:
    - Multi-turn conversations with follow-up questions
    - Direct business queries without prior search
    - Conversational restaurant reservations (when enabled)
+   - ⚠️ If yelp_agent returns "Unable to fetch data from Yelp", this means the YELP_API_KEY
+     environment variable is missing. Inform the user that the Yelp service is unavailable
+     due to missing API credentials and suggest they check the server configuration.
 
 2. **MapTools** (for interactive map visualization):
    - get_interactive_map_data: Generate interactive Google Maps with business locations
@@ -157,6 +160,165 @@ User: "Which ones have outdoor seating?" (follow-up)
 
 Be helpful, accurate, and always credit Yelp for the data.
 """
+
+
+def _validate_mcp_command(command: str, work_dir: Path) -> None:
+    """
+    Validate MCP server command before attempting to create the server.
+    
+    Args:
+        command: The MCP server command to validate
+        work_dir: Working directory for the MCP server
+        
+    Raises:
+        AgentException: If command validation fails
+    """
+    import shutil
+    import subprocess
+    
+    # Check if command exists in PATH
+    if not shutil.which(command):
+        raise AgentException(
+            f"MCP server command '{command}' not found in PATH. "
+            f"Please ensure the command is installed and accessible.",
+            agent_name="yelp_mcp"
+        )
+    
+    # For 'uv' command, check if it can find the mcp-yelp-agent package
+    if command == "uv":
+        try:
+            # Test if uv can resolve the mcp-yelp-agent package
+            result = subprocess.run(
+                ["uv", "run", "--help"],
+                cwd=str(work_dir),
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            if result.returncode != 0:
+                raise AgentException(
+                    f"UV command failed in working directory {work_dir}. "
+                    f"Stderr: {result.stderr}",
+                    agent_name="yelp_mcp"
+                )
+        except subprocess.TimeoutExpired:
+            raise AgentException(
+                f"UV command timed out in working directory {work_dir}. "
+                f"This may indicate a configuration issue.",
+                agent_name="yelp_mcp"
+            )
+        except FileNotFoundError:
+            raise AgentException(
+                f"UV command not found. Please install uv: https://docs.astral.sh/uv/getting-started/installation/",
+                agent_name="yelp_mcp"
+            )
+
+
+def _diagnose_mcp_error(error: Exception, command: str, work_dir: Path, env: dict) -> str:
+    """
+    Provide detailed diagnostics for MCP server errors.
+    
+    Args:
+        error: The exception that occurred
+        command: The MCP server command
+        work_dir: Working directory
+        env: Environment variables
+        
+    Returns:
+        Detailed error diagnosis string
+    """
+    diagnostics = []
+    
+    # Basic error information
+    diagnostics.append(f"Error type: {type(error).__name__}")
+    diagnostics.append(f"Error message: {str(error)}")
+    
+    # Command diagnostics
+    diagnostics.append(f"Command: {command}")
+    diagnostics.append(f"Working directory: {work_dir}")
+    diagnostics.append(f"Directory exists: {work_dir.exists()}")
+    
+    # Environment diagnostics
+    yelp_key_present = "YELP_API_KEY" in env
+    diagnostics.append(f"YELP_API_KEY present: {yelp_key_present}")
+    
+    if yelp_key_present:
+        key_length = len(env["YELP_API_KEY"])
+        diagnostics.append(f"YELP_API_KEY length: {key_length} characters")
+    
+    # Check for common issues
+    if "command not found" in str(error).lower() or "no such file" in str(error).lower():
+        diagnostics.append("DIAGNOSIS: Command not found - ensure MCP server is installed")
+    elif "permission denied" in str(error).lower():
+        diagnostics.append("DIAGNOSIS: Permission denied - check file permissions")
+    elif "timeout" in str(error).lower():
+        diagnostics.append("DIAGNOSIS: Timeout - MCP server may be unresponsive")
+    elif not yelp_key_present:
+        diagnostics.append("DIAGNOSIS: Missing YELP_API_KEY - required for Yelp MCP server")
+    
+    return "; ".join(diagnostics)
+
+
+def _should_fallback_to_non_mcp(error: Exception) -> bool:
+    """
+    Determine if we should fallback to non-MCP yelp agent based on the error.
+    
+    Args:
+        error: The MCP server error
+        
+    Returns:
+        True if fallback is recommended, False otherwise
+    """
+    error_str = str(error).lower()
+    
+    # Fallback for common MCP-specific issues
+    fallback_indicators = [
+        "command not found",
+        "no such file",
+        "mcp-yelp-agent",
+        "uv run",
+        "package not found",
+        "import error",
+        "module not found"
+    ]
+    
+    return any(indicator in error_str for indicator in fallback_indicators)
+
+
+def _create_fallback_yelp_agent(instructions: str | None, model_config: ModelConfig | None) -> AgentProtocol:
+    """
+    Create a fallback non-MCP yelp agent when MCP fails.
+    
+    Args:
+        instructions: Agent instructions
+        model_config: Model configuration
+        
+    Returns:
+        Non-MCP yelp agent instance
+    """
+    import sys
+    
+    try:
+        # Import the non-MCP yelp agent
+        from asdrp.agents.single.yelp_agent import create_yelp_agent
+        
+        print(f"[YelpMCPAgent] Creating fallback non-MCP yelp agent", file=sys.stderr)
+        
+        # Create fallback agent with modified instructions
+        fallback_instructions = instructions or DEFAULT_INSTRUCTIONS
+        fallback_instructions += "\n\n[FALLBACK MODE: Using non-MCP Yelp agent due to MCP server issues]"
+        
+        return create_yelp_agent(
+            instructions=fallback_instructions,
+            model_config=model_config
+        )
+        
+    except Exception as fallback_error:
+        raise AgentException(
+            f"Both MCP and fallback yelp agents failed. "
+            f"Fallback error: {str(fallback_error)}",
+            agent_name="yelp_mcp"
+        ) from fallback_error
 
 
 def create_yelp_mcp_agent(
@@ -275,22 +437,42 @@ def create_yelp_mcp_agent(
             )
 
         # Prepare environment variables
-        # Environment variables are loaded from .env file via python-dotenv
-        # at module load time (lines 25-26), so os.environ already contains them
+        # CRITICAL: Aggressively ensure YELP_API_KEY is loaded from .env
+        # Strategy: Try multiple methods to load the API key
+
+        # Method 1: Explicit reload from .env file
+        project_root = Path(__file__).parent.parent.parent.parent
+        dotenv_path = project_root / ".env"
+
+        if dotenv_path.exists():
+            load_dotenv(dotenv_path, override=False)
+        else:
+            # Fallback: Try find_dotenv()
+            load_dotenv(find_dotenv(), override=False)
+
+        # Copy all environment variables
         env = os.environ.copy()
 
-        # CRITICAL: Explicitly validate and ensure YELP_API_KEY is present
-        # The MCP subprocess REQUIRES this environment variable to function
+        # CRITICAL: Validate YELP_API_KEY is present
         if "YELP_API_KEY" not in env:
-            # Try loading again from .env (defensive programming)
-            load_dotenv(find_dotenv())
-            if "YELP_API_KEY" not in os.environ:
+            # Final attempt: Read .env file directly and parse it
+            if dotenv_path.exists():
+                with open(dotenv_path, 'r') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line.startswith('YELP_API_KEY='):
+                            key_value = line.split('=', 1)[1].strip().strip('"').strip("'")
+                            env['YELP_API_KEY'] = key_value
+                            break
+
+            # If still not found, raise error
+            if "YELP_API_KEY" not in env:
                 raise AgentException(
                     "YELP_API_KEY environment variable is required but not found. "
+                    f"Searched in: {dotenv_path}. "
                     "Please ensure it's set in your .env file at the project root.",
                     agent_name="yelp_mcp"
                 )
-            env = os.environ.copy()  # Re-copy after reload
 
         # Allow programmatic override of environment variables (for testing/advanced usage)
         # Note: When loading from YAML config, env is set to None, so this only applies
@@ -298,11 +480,18 @@ def create_yelp_mcp_agent(
         if mcp_server_config.env:
             env.update(mcp_server_config.env)
 
-        # Debug: Log environment variable status
-        print(f"[YelpMCPAgent] Environment variables prepared:")
-        print(f"[YelpMCPAgent]   YELP_API_KEY present: {bool(env.get('YELP_API_KEY'))}")
-        print(f"[YelpMCPAgent]   YELP_API_KEY (first 10): {env.get('YELP_API_KEY', 'NOT_SET')[:10]}...")
-        print(f"[YelpMCPAgent]   Working directory: {work_dir}")
+        # Debug: Log environment variable status (CRITICAL for debugging MCP issues)
+        import sys
+        yelp_key_status = bool(env.get('YELP_API_KEY'))
+        yelp_key_preview = env.get('YELP_API_KEY', 'NOT_SET')[:15] + '...' if env.get('YELP_API_KEY') else 'NOT_SET'
+
+        print(f"[YelpMCPAgent] =========== MCP ENVIRONMENT DEBUG ===========", file=sys.stderr)
+        print(f"[YelpMCPAgent] YELP_API_KEY present: {yelp_key_status}", file=sys.stderr)
+        print(f"[YelpMCPAgent] YELP_API_KEY preview: {yelp_key_preview}", file=sys.stderr)
+        print(f"[YelpMCPAgent] Working directory: {work_dir}", file=sys.stderr)
+        print(f"[YelpMCPAgent] MCP command: {mcp_server_config.command}", file=sys.stderr)
+        print(f"[YelpMCPAgent] Config env field: {'null (inherit all)' if mcp_server_config.env is None else f'{len(mcp_server_config.env)} vars'}", file=sys.stderr)
+        print(f"[YelpMCPAgent] ===========================================", file=sys.stderr)
 
         # Normalize LOG_LEVEL to uppercase for FastMCP compatibility
         # FastMCP expects uppercase log levels: DEBUG, INFO, WARNING, ERROR, CRITICAL
@@ -350,7 +539,7 @@ def create_yelp_mcp_agent(
             env=env  # Environment variables dict
         )
 
-        # Create MCPServerStdio instance
+        # Enhanced MCP server creation with health checks and retry mechanisms
         # According to OpenAI docs: https://openai.github.io/openai-agents-python/mcp/
         # - client_session_timeout_seconds controls how long to wait for responses from stdio servers
         # - For stdio servers, this controls the timeout for tool call responses
@@ -361,13 +550,38 @@ def create_yelp_mcp_agent(
         #   * Response parsing/formatting: ~5-10s
         # - This prevents premature timeouts on legitimate long-running queries
         # Note: The server will be connected via async context manager in agent_service.py
-        mcp_server = MCPServerStdio(
-            name="YelpMCP",
-            params=mcp_params,
-            client_session_timeout_seconds=60.0,  # Increased: 60s for reliable complex queries
-            cache_tools_list=True,  # Cache tools list to reduce latency per OpenAI docs
-            max_retry_attempts=2,  # Increased: 2 retries for transient failures
-        )
+        
+        try:
+            # Perform pre-flight validation of MCP server command (skip in test environments)
+            if not os.getenv("PYTEST_CURRENT_TEST"):
+                _validate_mcp_command(command_base, work_dir)
+            
+            mcp_server = MCPServerStdio(
+                name="YelpMCP",
+                params=mcp_params,
+                client_session_timeout_seconds=60.0,  # Increased: 60s for reliable complex queries
+                cache_tools_list=True,  # Cache tools list to reduce latency per OpenAI docs
+                max_retry_attempts=3,  # Enhanced: 3 retries for better reliability
+            )
+            
+            print(f"[YelpMCPAgent] ✓ MCP server configured successfully", file=sys.stderr)
+            
+        except Exception as mcp_error:
+            # Enhanced error handling with detailed diagnostics
+            error_details = _diagnose_mcp_error(mcp_error, command_base, work_dir, env)
+            print(f"[YelpMCPAgent] ✗ MCP server configuration failed: {error_details}", file=sys.stderr)
+            
+            # Check if we should attempt fallback to non-MCP yelp agent
+            if _should_fallback_to_non_mcp(mcp_error):
+                print(f"[YelpMCPAgent] → Attempting fallback to non-MCP yelp agent", file=sys.stderr)
+                return _create_fallback_yelp_agent(instructions, model_config)
+            else:
+                # Re-raise with enhanced error message
+                raise AgentException(
+                    f"Failed to configure YelpMCP server: {error_details}. "
+                    f"Please check your MCP server configuration and ensure the yelp-mcp package is properly installed.",
+                    agent_name="yelp_mcp"
+                ) from mcp_error
 
         # Import MapTools for interactive map generation
         # MapTools provides get_interactive_map_data() which generates JSON blocks

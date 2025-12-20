@@ -104,6 +104,11 @@ class WeightedMixer(IResultMixer):
             # Mix using LLM synthesis
             mixed = await self._llm_synthesis(successful, weights, query)
 
+            # Enhanced JSON block preservation with post-synthesis validation
+            original_blocks = []
+            for result in successful:
+                original_blocks.extend(self._extract_interactive_json_blocks(result.output))
+            
             # Deterministically preserve any interactive visualization blocks produced by experts.
             # Rationale: even with strong prompting, LLM synthesis can omit code blocks; the UI
             # depends on these blocks (e.g., interactive maps) to render rich components.
@@ -111,34 +116,76 @@ class WeightedMixer(IResultMixer):
                 mixed.content,
                 [r.output for r in successful]
             )
+            
+            # Post-synthesis validation: Ensure all original JSON blocks are preserved
+            mixed.content = self._validate_and_restore_json_blocks(
+                mixed.content, 
+                original_blocks,
+                query
+            )
 
-            # Defense-in-depth: If this is a route/directions query and no map was generated,
+            # Enhanced defense-in-depth: If this is a route/directions query and no map was generated,
             # try to auto-inject one from route information in the response
             from loguru import logger
-            if "```json" not in mixed.content or "interactive_map" not in mixed.content:
+            if not self._has_interactive_map(mixed.content):
                 logger.info("[ResultMixer] No interactive map in synthesized response, attempting auto-injection")
                 mixed.content = self._auto_inject_missing_maps(mixed.content, query, successful)
 
                 # FINAL FALLBACK: Geocode addresses from response text and inject places map
                 # This handles cases where Yelp/other agents return addresses without coordinates
-                if "```json" not in mixed.content or "interactive_map" not in mixed.content:
+                if not self._has_interactive_map(mixed.content):
                     logger.info("[ResultMixer] Fallback to geocoding-based map injection")
                     mixed.content = await self._auto_inject_map_via_geocoding(mixed.content, query, successful)
                 else:
                     logger.info("[ResultMixer] Map successfully auto-injected from coordinates")
             else:
                 logger.info("[ResultMixer] Interactive map already present in synthesized response")
+                
+                # Even if map is present, check if it has valid coordinates
+                # If not, try to enhance it with geocoded coordinates
+                json_blocks = self._extract_interactive_json_blocks(mixed.content)
+                if json_blocks:
+                    for block in json_blocks:
+                        try:
+                            import json
+                            json_obj = json.loads(block.replace("```json\n", "").replace("\n```", ""))
+                            config = json_obj.get("config", {})
+                            markers = config.get("markers", [])
+                            
+                            # Check if markers have null coordinates
+                            has_null_coords = any(
+                                m.get("lat") is None or m.get("lng") is None 
+                                for m in markers if isinstance(m, dict)
+                            )
+                            
+                            if has_null_coords:
+                                logger.warning("[ResultMixer] Map present but has null coordinates - attempting geocoding enhancement")
+                                enhanced_content = await self._auto_inject_map_via_geocoding(mixed.content, query, successful)
+                                if enhanced_content != mixed.content:
+                                    mixed.content = enhanced_content
+                                    logger.info("[ResultMixer] Successfully enhanced map with geocoded coordinates")
+                        except Exception as e:
+                            logger.debug(f"[ResultMixer] Error checking map coordinates: {e}")
+                            continue
 
             return mixed
 
         except Exception as e:
             raise MixingException(f"Result mixing failed: {e}")
 
+    # Multiple regex patterns for robust JSON block detection
     _JSON_FENCE_RE = re.compile(r"```json\s*(.*?)\s*```", re.DOTALL | re.IGNORECASE)
+    _JSON_FENCE_ALT_RE = re.compile(r"```JSON\s*(.*?)\s*```", re.DOTALL)  # Case-sensitive JSON
+    _JSON_FENCE_LOOSE_RE = re.compile(r"```\s*json\s*(.*?)\s*```", re.DOTALL | re.IGNORECASE)  # Loose spacing
 
     def _extract_interactive_json_blocks(self, text: str) -> List[str]:
         """
-        Extract interactive visualization JSON code blocks from markdown text.
+        Extract interactive visualization JSON code blocks from markdown text using multiple patterns.
+
+        Enhanced with multiple regex patterns for robust detection:
+        - Standard: ```json ... ```
+        - Case-sensitive: ```JSON ... ```  
+        - Loose spacing: ``` json ... ```
 
         We currently target:
         - type == "interactive_map"
@@ -150,21 +197,30 @@ class WeightedMixer(IResultMixer):
             return []
 
         blocks: List[str] = []
-        for m in self._JSON_FENCE_RE.finditer(text):
-            raw_json = (m.group(1) or "").strip()
-            if not raw_json:
-                continue
-            try:
-                import json
+        
+        # Try multiple regex patterns for robust detection
+        patterns = [
+            self._JSON_FENCE_RE,
+            self._JSON_FENCE_ALT_RE, 
+            self._JSON_FENCE_LOOSE_RE
+        ]
+        
+        for pattern in patterns:
+            for m in pattern.finditer(text):
+                raw_json = (m.group(1) or "").strip()
+                if not raw_json:
+                    continue
+                try:
+                    import json
 
-                data = json.loads(raw_json)
-                if isinstance(data, dict) and data.get("type") == "interactive_map" and data.get("config"):
-                    # Preserve original block text as closely as possible.
-                    full_block = f"```json\n{raw_json}\n```"
-                    blocks.append(full_block)
-            except Exception:
-                # Not JSON or not parseable; ignore.
-                continue
+                    data = json.loads(raw_json)
+                    if isinstance(data, dict) and data.get("type") == "interactive_map" and "config" in data:
+                        # Preserve original block text as closely as possible.
+                        full_block = f"```json\n{raw_json}\n```"
+                        blocks.append(full_block)
+                except Exception:
+                    # Not JSON or not parseable; ignore.
+                    continue
 
         # Deduplicate while preserving order
         seen: set[str] = set()
@@ -174,6 +230,108 @@ class WeightedMixer(IResultMixer):
                 seen.add(b)
                 deduped.append(b)
         return deduped
+
+    def _validate_and_restore_json_blocks(
+        self, 
+        synthesized_content: str, 
+        original_blocks: List[str],
+        query: str
+    ) -> str:
+        """
+        Post-synthesis validation to ensure all interactive JSON blocks are preserved.
+        
+        This method performs a final check to ensure that all interactive map JSON blocks
+        from expert outputs are present in the synthesized response. If any are missing,
+        they are automatically restored.
+        
+        Args:
+            synthesized_content: The synthesized response content
+            original_blocks: List of original JSON blocks from expert outputs
+            query: Original user query for context
+            
+        Returns:
+            Enhanced synthesized content with all JSON blocks preserved
+        """
+        if not original_blocks:
+            return synthesized_content
+            
+        from loguru import logger
+        
+        # Extract JSON blocks from synthesized content
+        synthesized_blocks = self._extract_interactive_json_blocks(synthesized_content)
+        
+        # Check if all original blocks are preserved
+        missing_blocks = []
+        for original_block in original_blocks:
+            block_found = False
+            
+            # Parse original block to compare structure
+            try:
+                import json
+                original_json_match = self._JSON_FENCE_RE.search(original_block)
+                if original_json_match:
+                    original_json = json.loads(original_json_match.group(1).strip())
+                    
+                    # Check if equivalent block exists in synthesized content
+                    for synth_block in synthesized_blocks:
+                        synth_json_match = self._JSON_FENCE_RE.search(synth_block)
+                        if synth_json_match:
+                            synth_json = json.loads(synth_json_match.group(1).strip())
+                            
+                            # Compare essential structure
+                            if (synth_json.get("type") == original_json.get("type") and
+                                synth_json.get("config", {}).get("map_type") == original_json.get("config", {}).get("map_type")):
+                                block_found = True
+                                break
+                                
+            except (json.JSONDecodeError, AttributeError):
+                # If parsing fails, do string comparison as fallback
+                if original_block in synthesized_content:
+                    block_found = True
+            
+            if not block_found:
+                missing_blocks.append(original_block)
+                logger.warning(f"[ResultMixer] JSON block missing from synthesis, will restore: {original_block[:100]}...")
+        
+        # Restore missing blocks
+        if missing_blocks:
+            logger.info(f"[ResultMixer] Restoring {len(missing_blocks)} missing JSON blocks")
+            restored_content = synthesized_content
+            
+            for missing_block in missing_blocks:
+                if missing_block not in restored_content:
+                    restored_content = f"{restored_content.rstrip()}\n\n{missing_block}\n"
+            
+            return restored_content
+        
+        logger.debug("[ResultMixer] All JSON blocks successfully preserved in synthesis")
+        return synthesized_content
+
+    def _has_interactive_map(self, content: str) -> bool:
+        """
+        Check if content contains an interactive map JSON block.
+        
+        Uses robust detection with multiple patterns to ensure maps are not missed.
+        
+        Args:
+            content: Content to check
+            
+        Returns:
+            True if interactive map is present, False otherwise
+        """
+        if not content:
+            return False
+            
+        # Quick check first - look for any JSON block pattern
+        if not ("```json" in content or "```JSON" in content or "``` json" in content):
+            return False
+            
+        if "interactive_map" not in content:
+            return False
+        
+        # Robust check using extraction method
+        blocks = self._extract_interactive_json_blocks(content)
+        return len(blocks) > 0
 
     def _auto_inject_missing_maps(
         self,

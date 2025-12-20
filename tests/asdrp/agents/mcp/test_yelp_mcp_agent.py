@@ -406,21 +406,36 @@ class TestYelpMCPAgentErrorHandling:
         with patch.object(Path, "exists", return_value=True):
             yield
 
-    def test_import_error_raises_agent_exception(
+    def test_import_error_triggers_fallback(
         self,
         mock_env_with_yelp_key,
         mock_path_exists
     ):
-        """Test that ImportError is wrapped in AgentException."""
-        # Patch all imports that happen inside the function to raise ImportError
+        """Test that ImportError triggers fallback to non-MCP yelp agent."""
+        # Patch MCP imports to raise ImportError, but allow fallback agent to work
         with patch("agents.Agent", side_effect=ImportError("Test import error")), \
              patch("agents.ModelSettings", side_effect=ImportError("Test import error")), \
-             patch("agents.mcp.MCPServerStdio", side_effect=ImportError("Test import error")):
-            with pytest.raises(AgentException) as exc_info:
-                create_yelp_mcp_agent()
-
-            assert "Failed to import" in str(exc_info.value)
-            assert "openai-agents>=0.5.1" in str(exc_info.value)
+             patch("agents.mcp.MCPServerStdio", side_effect=ImportError("Test import error")), \
+             patch("asdrp.agents.single.yelp_agent.create_yelp_agent") as mock_fallback:
+            
+            # Configure fallback to return a mock agent
+            mock_fallback_agent = MagicMock(spec=AgentProtocol)
+            mock_fallback_agent.name = "YelpAgent"
+            mock_fallback.return_value = mock_fallback_agent
+            
+            # Should successfully create fallback agent instead of raising exception
+            agent = create_yelp_mcp_agent()
+            
+            assert agent is not None
+            assert isinstance(agent, AgentProtocol)
+            
+            # Verify fallback was called
+            mock_fallback.assert_called_once()
+            
+            # Verify fallback instructions include fallback notice
+            call_args = mock_fallback.call_args
+            instructions = call_args[1]["instructions"] if "instructions" in call_args[1] else call_args[0][0]
+            assert "FALLBACK MODE" in instructions
 
     def test_generic_exception_raises_agent_exception(
         self,

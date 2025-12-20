@@ -448,6 +448,348 @@ class SemanticEndpointer:
 
         logger.info(f"SemanticEndpointer initialized with strategy: {self.strategy.get_name()}")
 
+
+class EnhancedSemanticEndpointer(SemanticEndpointer):
+    """
+    Enhanced semantic endpointer with query accumulation integration and conversation context.
+    
+    Extends the existing SemanticEndpointer with:
+    - Query accumulation awareness
+    - Multi-turn conversation context
+    - User-specific pattern learning
+    - Improved confidence scoring
+    - Session memory integration
+    
+    This class maintains backward compatibility with the existing SemanticEndpointer
+    while adding new capabilities for robust voice interactions.
+    """
+    
+    def __init__(
+        self,
+        query_accumulator: Optional['IQueryAccumulator'] = None,
+        session_memory: Optional['IUnifiedSessionMemory'] = None,
+        strategy: Optional[IEndpointingStrategy] = None,
+        enable_logging: bool = True,
+        enable_user_patterns: bool = True,
+    ):
+        """
+        Initialize enhanced semantic endpointer.
+        
+        Args:
+            query_accumulator: Query accumulator for buffering speech segments
+            session_memory: Session memory for conversation context
+            strategy: Endpointing strategy (uses Hybrid by default)
+            enable_logging: Enable detailed logging for debugging
+            enable_user_patterns: Enable user-specific pattern learning
+        """
+        super().__init__(strategy, enable_logging)
+        
+        self._query_accumulator = query_accumulator
+        self._session_memory = session_memory
+        self._enable_user_patterns = enable_user_patterns
+        
+        # User-specific patterns (session_id -> patterns dict)
+        self._user_patterns: Dict[str, Dict[str, Any]] = {}
+        
+        # Enhanced context tracking
+        self._session_contexts: Dict[str, List[str]] = {}  # session_id -> conversation history
+        
+        logger.info(
+            f"EnhancedSemanticEndpointer initialized: "
+            f"query_accumulator={query_accumulator is not None}, "
+            f"session_memory={session_memory is not None}, "
+            f"user_patterns={enable_user_patterns}"
+        )
+    
+    async def analyze_with_context(
+        self,
+        text: str,
+        silence_duration: float,
+        utterance_duration: float,
+        session_id: Optional[str] = None,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> EndpointingResult:
+        """
+        Analyze utterance with conversation context and user patterns.
+        
+        Enhances the existing analyze_utterance method with:
+        - Session-based conversation context
+        - User-specific speaking patterns
+        - Query accumulation state awareness
+        
+        Args:
+            text: Transcribed text from STT
+            silence_duration: Duration of trailing silence (seconds)
+            utterance_duration: Total utterance duration (seconds)
+            session_id: Optional session identifier for context
+            context: Optional additional context metadata
+            
+        Returns:
+            EndpointingResult with enhanced decision and confidence
+        """
+        start_time = time.time()
+        
+        # Get conversation context from session memory
+        conversation_context = []
+        if session_id and self._session_memory:
+            try:
+                conversation_context = await self._session_memory.get_conversation_context(
+                    session_id, max_turns=5
+                )
+                logger.debug(f"Retrieved {len(conversation_context)} conversation turns for context")
+            except Exception as e:
+                logger.warning(f"Failed to get conversation context for session {session_id}: {e}")
+        
+        # Get user patterns for this session
+        user_patterns = self._user_patterns.get(session_id, {}) if session_id and self._enable_user_patterns else {}
+        
+        # Get query accumulation state if available
+        accumulation_state = None
+        if self._query_accumulator:
+            try:
+                current_query = self._query_accumulator.get_current_query()
+                if current_query:
+                    accumulation_state = {
+                        'segment_count': current_query.segment_count,
+                        'total_duration': current_query.total_duration,
+                        'word_count': current_query.word_count,
+                        'confidence': current_query.confidence
+                    }
+            except Exception as e:
+                logger.warning(f"Failed to get query accumulation state: {e}")
+        
+        # Create enhanced context
+        enhanced_context = {
+            'conversation_history': [turn.user_query for turn in conversation_context] if conversation_context else [],
+            'current_topic': self._extract_current_topic(conversation_context),
+            'user_speaking_patterns': user_patterns,
+            'session_metadata': context or {},
+            'accumulation_state': accumulation_state,
+            'session_id': session_id
+        }
+        
+        # Use existing analysis with enhanced context
+        result = self.analyze_utterance(text, silence_duration, utterance_duration, enhanced_context)
+        
+        # Update user patterns based on result
+        if session_id and self._enable_user_patterns:
+            self._update_user_patterns(session_id, result, text, silence_duration, utterance_duration)
+        
+        # Update session context
+        if session_id:
+            if session_id not in self._session_contexts:
+                self._session_contexts[session_id] = []
+            
+            # Add to session context if this is an endpoint decision
+            if result.decision == EndpointingDecision.ENDPOINT:
+                self._session_contexts[session_id].append(text)
+                # Keep only recent context (last 10 utterances)
+                if len(self._session_contexts[session_id]) > 10:
+                    self._session_contexts[session_id].pop(0)
+        
+        # Enhanced logging
+        if self.enable_logging:
+            processing_time = (time.time() - start_time) * 1000
+            logger.debug(
+                f"[EnhancedSemanticEndpointer] Session: {session_id}, "
+                f"Decision: {result.decision.value} (confidence: {result.confidence:.2f}), "
+                f"Processing: {processing_time:.1f}ms"
+            )
+            if accumulation_state:
+                logger.debug(
+                    f"[EnhancedSemanticEndpointer] Accumulation: "
+                    f"{accumulation_state['segment_count']} segments, "
+                    f"{accumulation_state['word_count']} words, "
+                    f"{accumulation_state['total_duration']:.2f}s"
+                )
+        
+        return result
+    
+    def _extract_current_topic(self, conversation_context: List[Any]) -> Optional[str]:
+        """
+        Extract current conversation topic from recent turns.
+        
+        Uses simple keyword extraction to identify the main topic
+        of the current conversation for context-aware endpointing.
+        
+        Args:
+            conversation_context: Recent conversation turns
+            
+        Returns:
+            Extracted topic string or None if no clear topic
+        """
+        if not conversation_context:
+            return None
+        
+        try:
+            # Get recent user queries
+            recent_queries = []
+            for turn in conversation_context[-3:]:  # Last 3 turns
+                if hasattr(turn, 'user_query') and turn.user_query:
+                    recent_queries.append(turn.user_query.lower())
+            
+            if not recent_queries:
+                return None
+            
+            # Simple topic extraction using common keywords
+            topic_keywords = {
+                'restaurant': ['restaurant', 'food', 'eat', 'dining', 'menu', 'cuisine'],
+                'location': ['location', 'address', 'where', 'place', 'near', 'directions'],
+                'weather': ['weather', 'temperature', 'rain', 'sunny', 'forecast'],
+                'travel': ['travel', 'flight', 'hotel', 'trip', 'vacation'],
+                'shopping': ['buy', 'purchase', 'store', 'shop', 'price', 'cost']
+            }
+            
+            # Count keyword occurrences
+            topic_scores = {}
+            for topic, keywords in topic_keywords.items():
+                score = 0
+                for query in recent_queries:
+                    for keyword in keywords:
+                        if keyword in query:
+                            score += 1
+                if score > 0:
+                    topic_scores[topic] = score
+            
+            # Return most frequent topic
+            if topic_scores:
+                return max(topic_scores, key=topic_scores.get)
+            
+            return None
+            
+        except Exception as e:
+            logger.warning(f"Failed to extract topic from conversation context: {e}")
+            return None
+    
+    def _update_user_patterns(
+        self,
+        session_id: str,
+        result: EndpointingResult,
+        text: str,
+        silence_duration: float,
+        utterance_duration: float
+    ) -> None:
+        """
+        Update user-specific speaking patterns based on endpointing results.
+        
+        Learns patterns like:
+        - Average silence duration before user stops speaking
+        - Typical utterance length and word count
+        - Common sentence structures and completeness patterns
+        - Confidence thresholds that work well for this user
+        
+        Args:
+            session_id: Session identifier
+            result: Endpointing result
+            text: Original utterance text
+            silence_duration: Silence duration
+            utterance_duration: Utterance duration
+        """
+        try:
+            if session_id not in self._user_patterns:
+                self._user_patterns[session_id] = {
+                    'silence_durations': [],
+                    'utterance_durations': [],
+                    'word_counts': [],
+                    'endpoint_decisions': [],
+                    'confidence_scores': [],
+                    'last_updated': time.time()
+                }
+            
+            patterns = self._user_patterns[session_id]
+            
+            # Update pattern data
+            patterns['silence_durations'].append(silence_duration)
+            patterns['utterance_durations'].append(utterance_duration)
+            patterns['word_counts'].append(len(text.split()))
+            patterns['endpoint_decisions'].append(result.decision.value)
+            patterns['confidence_scores'].append(result.confidence)
+            patterns['last_updated'] = time.time()
+            
+            # Keep only recent data (last 50 interactions)
+            max_history = 50
+            for key in ['silence_durations', 'utterance_durations', 'word_counts', 
+                       'endpoint_decisions', 'confidence_scores']:
+                if len(patterns[key]) > max_history:
+                    patterns[key] = patterns[key][-max_history:]
+            
+            # Calculate derived patterns
+            if len(patterns['silence_durations']) >= 5:
+                patterns['avg_silence_duration'] = sum(patterns['silence_durations']) / len(patterns['silence_durations'])
+                patterns['avg_utterance_duration'] = sum(patterns['utterance_durations']) / len(patterns['utterance_durations'])
+                patterns['avg_word_count'] = sum(patterns['word_counts']) / len(patterns['word_counts'])
+                patterns['avg_confidence'] = sum(patterns['confidence_scores']) / len(patterns['confidence_scores'])
+                
+                # Calculate endpoint decision distribution
+                decision_counts = {}
+                for decision in patterns['endpoint_decisions']:
+                    decision_counts[decision] = decision_counts.get(decision, 0) + 1
+                patterns['decision_distribution'] = decision_counts
+            
+            logger.debug(f"Updated user patterns for session {session_id}: {len(patterns['silence_durations'])} interactions")
+            
+        except Exception as e:
+            logger.warning(f"Failed to update user patterns for session {session_id}: {e}")
+    
+    def get_user_patterns(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get learned user patterns for a session.
+        
+        Args:
+            session_id: Session identifier
+            
+        Returns:
+            User patterns dictionary or None if no patterns learned
+        """
+        return self._user_patterns.get(session_id)
+    
+    def clear_user_patterns(self, session_id: Optional[str] = None) -> None:
+        """
+        Clear user patterns for a session or all sessions.
+        
+        Args:
+            session_id: Session to clear, or None to clear all
+        """
+        if session_id:
+            if session_id in self._user_patterns:
+                del self._user_patterns[session_id]
+                logger.debug(f"Cleared user patterns for session {session_id}")
+        else:
+            self._user_patterns.clear()
+            logger.debug("Cleared all user patterns")
+    
+    def get_enhanced_stats(self) -> Dict[str, Any]:
+        """
+        Get enhanced endpointer statistics including user patterns and context.
+        
+        Returns:
+            Dictionary with enhanced statistics
+        """
+        base_stats = self.get_stats()
+        
+        enhanced_stats = {
+            **base_stats,
+            'user_patterns_count': len(self._user_patterns),
+            'session_contexts_count': len(self._session_contexts),
+            'query_accumulator_available': self._query_accumulator is not None,
+            'session_memory_available': self._session_memory is not None,
+            'user_patterns_enabled': self._enable_user_patterns,
+        }
+        
+        # Add user pattern summary
+        if self._user_patterns:
+            pattern_summary = {}
+            for session_id, patterns in self._user_patterns.items():
+                if 'avg_silence_duration' in patterns:
+                    pattern_summary[session_id] = {
+                        'interactions': len(patterns.get('silence_durations', [])),
+                        'avg_silence': patterns.get('avg_silence_duration', 0),
+                        'avg_confidence': patterns.get('avg_confidence', 0)
+                    }
+            enhanced_stats['user_pattern_summary'] = pattern_summary
+        
+        return enhanced_stats
+
     def analyze_utterance(
         self,
         text: str,

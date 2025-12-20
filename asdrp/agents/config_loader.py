@@ -347,13 +347,14 @@ class AgentConfigLoader:
         mcp_server_config = None
         if 'mcp_server' in agent_data:
             mcp_data = agent_data['mcp_server']
-            # Note: env field is deprecated - environment variables are loaded
-            # automatically from .env file via python-dotenv in __init__
+            # Support explicit env field from YAML for override scenarios
+            # If not provided in YAML, env=None means inherit from parent process
+            env_dict = mcp_data.get('env')  # Can be None, empty dict, or dict with vars
             mcp_server_config = MCPServerConfig(
                 enabled=mcp_data.get('enabled', False),
                 command=mcp_data.get('command'),
                 working_directory=mcp_data.get('working_directory'),
-                env=None,  # Environment variables loaded from .env file automatically
+                env=env_dict,  # Pass through from YAML (None = inherit all from parent)
                 transport=mcp_data.get('transport', 'stdio'),
                 host=mcp_data.get('host'),
                 port=mcp_data.get('port')
