@@ -53,6 +53,7 @@ class ParallelExecutor(IExpertExecutor):
         self._max_concurrent = config.moe.get("max_concurrent", 10)
         # Increased default timeout to 25s to match Yelp API timeout
         # This prevents premature timeouts for MCP agents like YelpMCPAgent
+        # and gives Map agent enough time to complete geocoding operations
         self._timeout_per_expert = config.moe.get("timeout_per_expert", 25.0)
 
     async def execute_parallel(

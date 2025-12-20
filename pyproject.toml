@@ -14,6 +14,7 @@ dependencies = [
     "geopy>=2.4.1",
     "google-auth>=2.23.0",
     "googlemaps>=4.10.0",
+    "hypothesis>=6.148.7",
     "livekit>=0.17.0",
     "livekit-agents>=0.9.0",
     "livekit-api>=1.1.0",
@@ -48,7 +49,20 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 # Exclude server tests - they require fastapi and should be run from server/ directory
-norecursedirs = ["tests/server", "server", "frontend_web", "frontend_stream"]
+# 
+# IMPORTANT: We explicitly extend pytest's default norecursedirs rather than replacing them.
+# This ensures that Hypothesis's .hypothesis directory is properly ignored (via the ".*" pattern)
+# and prevents the "Skipping collection of '.hypothesis' directory" warning.
+#
+# Pytest default norecursedirs: ["*.egg", ".*", "_darcs", "build", "CVS", "dist", "node_modules", "venv", "{arch}"]
+# - The ".*" pattern includes .hypothesis directory, which Hypothesis expects to be ignored
+# - This follows pytest and Hypothesis best practices for configuration
+norecursedirs = [
+    # Pytest defaults (explicit for maintainability and documentation)
+    "*.egg", ".*", "_darcs", "build", "CVS", "dist", "node_modules", "venv", "{arch}",
+    # Project-specific exclusions
+    "tests/server", "server", "frontend_web", "frontend_stream"
+]
 # Markers for test categorization
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",

@@ -1,0 +1,47 @@
+#!/bin/bash
+# Post-compile hook for Heroku Python buildpack
+# This runs after pip install
+# Note: With monorepo buildpack (APP_BASE=server), /app is the server/ directory
+
+echo "-----> Installing uv package manager"
+pip install uv
+
+echo "-----> Installing server dependencies with uv"
+# With APP_BASE=server, the monorepo buildpack copies server/ to /app
+# So /app should already contain pyproject.toml from server/pyproject.toml
+WORK_DIR="/app"
+
+# Verify pyproject.toml exists
+if [ ! -f "$WORK_DIR/pyproject.toml" ]; then
+    echo "Error: pyproject.toml not found in $WORK_DIR"
+    echo "Current directory: $(pwd)"
+    echo "Contents of /app:"
+    ls -la /app/ | head -20
+    echo "Looking for pyproject.toml in parent directories..."
+    find /app -name "pyproject.toml" -type f 2>/dev/null || echo "Not found"
+    exit 1
+fi
+
+cd "$WORK_DIR"
+echo "-----> Working directory: $(pwd)"
+echo "-----> Found pyproject.toml: $(ls -la pyproject.toml)"
+
+# Install server package in editable mode (matches local setup)
+uv pip install --system -e .
+
+echo "-----> Installing yelp-mcp dependencies (if needed)"
+# yelp-mcp is in the project root, which is one level up from /app when using monorepo buildpack
+# The monorepo buildpack structure: project root -> server/ -> copied to /app
+# So yelp-mcp should be at /app/../yelp-mcp or we need to check the original structure
+if [ -d "/app/../yelp-mcp" ]; then
+    cd /app/../yelp-mcp
+    uv sync --frozen || echo "Warning: yelp-mcp sync failed (may not be required)"
+elif [ -d "/app/yelp-mcp" ]; then
+    cd /app/yelp-mcp
+    uv sync --frozen || echo "Warning: yelp-mcp sync failed (may not be required)"
+else
+    echo "-----> yelp-mcp directory not found, skipping (this is optional)"
+fi
+
+echo "-----> Post-compile complete"
+
